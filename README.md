@@ -41,7 +41,7 @@ login sungguhan lewat POST form (password benar → 303 + cookie, password salah
 pesan error), semua halaman utama dengan cookie sesi, isi konten penting
 (termasuk angka dashboard dan nilai aset aktif vs nilai perolehan), filter
 cabang/sumber, ekspor CSV, empty state filter, dan UI 404. Total
-**176 pemeriksaan**.
+**180 pemeriksaan**.
 
 Bagian **SAMPAH** di skrip itu menguji soft delete secara end-to-end: barang
 terhapus tampil di `/items/terhapus` dan absen dari daftar aktif/CSV, tombol
@@ -147,9 +147,11 @@ sehingga riwayat pergerakan dan nilai perolehannya tetap utuh untuk audit.
   terpakai tidak didaur ulang (`generateItemCode()` di
   `src/lib/actions/items.ts`); `Item.code` tetap `@unique` sebagai jaring
   pengaman terakhir.
-- **Kode lama tidak pernah diubah.** Barang hasil seed (`INV-2026-0001` dst.)
-  tetap tanpa suffix — format baru hanya berlaku untuk barang baru. Saat
-  mengedit, kode yang sudah ada dipertahankan bila kolomnya dikosongkan.
+- **Kode yang sudah ada tidak pernah ditulis ulang otomatis.** Barang contoh
+  seed ikut memakai format lengkap (`INV-2026-0001-LPT`, `INV-2026-0009-PC`,
+  … `INV-2026-0010-FRN`) karena fixture-nya memang diperbarui; kode
+  lama/manual yang diketik tanpa suffix tetap sah apa adanya. Saat mengedit,
+  kode yang sudah ada dipertahankan bila kolomnya dikosongkan.
 - **Jenis barang** berbeda dari kategori: `Item.assetType` menyimpan kode pendek
   (`PC`, `LPT`, `PRN`, `MON`, `NET`, `MOB`, `FRN`, `ELE`, `LAIN`) dengan label
   manusiawi lewat `ITEM_TYPE_LABELS` / `itemTypeLabel()` di

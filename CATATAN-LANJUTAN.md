@@ -1,7 +1,8 @@
 # Catatan Lanjutan — Inventory List
 
 Terakhir diperbarui: 12 Oktober 2026 (sesi lanjutan — halaman Sampah & pemulihan
-barang, dilanjutkan kode barang otomatis + QR & label cetak).
+barang, dilanjutkan kode barang otomatis + QR & label cetak, lalu fixture seed
+dimigrasikan ke format kode bersuffix).
 Stack: Next.js 16.4.0 (Turbopack, Cache Components aktif) + Prisma 7.10.0 + SQLite (`dev.db`).
 Repositori: https://github.com/adamsyahmop/InventoryList (branch `main`, commit awal `823b402`).
 Identitas git repo ini: `adamsyahmop` / `adamsyahmop@users.noreply.github.com` (noreply, agar email asli tidak terekspos); `.env.example` di-*unignore* lewat `!.env.example` supaya template tetap ikut ter-commit.
@@ -10,7 +11,7 @@ Identitas git repo ini: `adamsyahmop` / `adamsyahmop@users.noreply.github.com` (
 
 `npm run build` hijau (14/14 halaman), `npm run lint` hijau, `npx tsc --noEmit`
 hijau, `npm run seed` hijau, dan smoke test end-to-end
-**176 pemeriksaan, 0 gagal**.
+**180 pemeriksaan, 0 gagal**.
 
 ## Paket 4 — Kode barang otomatis + QR & label cetak (sesi 12 Oktober 2026)
 
@@ -74,7 +75,7 @@ baru (`ItemFormValues.assetType`, `EMPTY_ITEM_FORM.assetType`). Halaman
   label hanya berfungsi bila aplikasi diakses lewat alamat jaringan/domain, bukan
   `localhost`.
 
-### 6. `smoke.ps1`: 157 → 176 pemeriksaan (19 baru)
+### 6. `smoke.ps1`: 157 → 180 pemeriksaan (23 baru)
 
 Bagian **KODE OTOMATIS, JENIS BARANG & LABEL QR**:
 
@@ -89,11 +90,42 @@ Bagian **KODE OTOMATIS, JENIS BARANG & LABEL QR**:
 - Bagian ini tidak menulis apa pun ke DB (kode otomatis sudah diverifikasi
   langsung via POST saat pengembangan), jadi angka dashboard tidak terpengaruh.
 
-### 7. Jebakan yang ditemui
+### 7. Barang contoh (seed) ikut memakai format baru
 
-- **Regex kode harus toleran dua format.** Kode lama (`INV-2026-0009`) tidak
-  punya suffix jenis, jadi pola `INV-\d{4}-\d{4}(-[A-Z]+)?` — bukan
-  `INV-\d{4}-\d{4}-[A-Z]+` yang hanya cocok untuk kode baru.
+Supaya data contoh tidak lagi jadi pengecualian, `prisma/seed.ts` diperbarui:
+kesepuluh fixture kini punya kode bersuffix jenis (`INV-2026-0001-LPT`,
+`INV-2026-0002-MON`, `INV-2026-0003-NET`, `INV-2026-0004-ELE`,
+`INV-2026-0005-FRN`, `INV-2026-0006-FRN`, `INV-2026-0007-ELE`,
+`INV-2026-0008-PRN`, `INV-2026-0009-PC`, `INV-2026-0010-FRN`) **dan** kolom
+`assetType` (`LPT`, `MON`, `NET`, `ELE`, `FRN`, `PRN`, `PC`) yang ikut ditulis
+ke `Item.assetType`. Field `assetType` ditambahkan ke tipe `SeedItem`, dan
+`first`/`sixth` (pemilik riwayat pergerakan) mencari kode yang baru.
+
+DB pengembangan yang sudah berisi data lama dirapikan **sekali jalan** dengan
+skrip sementara (`npx tsx`): `code` + `assetType` tiap baris diperbarui dan
+token kode di `searchKey` ditukar, lalu `npm run seed` menulis ulang seluruh
+isinya (termasuk `searchKey`) sehingga hasilnya identik dengan seed baru.
+`ItemMovement` menunjuk `itemId`, jadi **id barang, `createdAt`, tautan label
+QR, dan seluruh angka dashboard tidak berubah** — hanya kode yang dibaca
+manusia yang berganti. Skrip sementaranya dihapus setelah dipakai.
+
+Yang tetap **tidak** disentuh: kode manual/legacy milik pengguna. Server tidak
+pernah menulis ulang kode yang sudah ada, dan saat mengedit kode dipertahankan
+bila kolomnya dikosongkan.
+
+Verifikasi: `npm run lint` + `npx tsc --noEmit` hijau, `npm run seed` hijau
+(10 barang), dan smoke naik 176 → **180 pemeriksaan, 0 gagal** dengan 4
+pemeriksaan baru — daftar barang memuat `INV-2026-0001-LPT`, ekspor CSV memuat
+`INV-2026-0001-LPT`, dan pencarian `?q=INV-2026-0009-PC` menemukan
+`PC Desktop HP ProDesk 400` (bukti `searchKey` memakai kode baru, sehingga
+filter berbasis kode tetap jalan).
+
+### 8. Jebakan yang ditemui
+
+- **Regex kode harus toleran dua format.** Sejak fixture seed ikut bersuffix,
+  kode di data contoh selalu punya akhiran jenis, tetapi kode manual/legacy
+  tanpa suffix tetap sah. Karena itu polanya `INV-\d{4}-\d{4}(-[A-Z]+)?` —
+  bukan `INV-\d{4}-\d{4}-[A-Z]+` yang hanya cocok untuk kode baru.
 - **Verifikasi kode otomatis lewat POST butuh skrip khusus, dan itu mengotori
   data.** Barang uji harus dihapus lagi (hard delete + movement-nya) supaya
   angka dashboard & ekspor CSV kembali seperti kondisi seed; seed **tidak**

@@ -9,6 +9,7 @@
 import "dotenv/config";
 import { prisma } from "../src/lib/prisma";
 import { buildSearchKey } from "../src/lib/utils";
+import type { ItemTypeCode } from "../src/lib/constants";
 import type {
   AcquisitionSource,
   ItemCondition,
@@ -16,7 +17,14 @@ import type {
 } from "../src/generated/prisma/enums";
 
 type SeedItem = {
+  /**
+   * Kode barang contoh, sudah memakai format baru termasuk akhiran jenis
+   * (`INV-2026-0001-LPT`) supaya sama persis dengan kode yang diterbitkan
+   * server saat kolom Kode di form dikosongkan.
+   */
   code: string;
+  /** Jenis aset (akhiran kode), mis. `LPT`; daftar sahnya `ITEM_TYPE_VALUES`. */
+  assetType?: ItemTypeCode;
   name: string;
   model?: string;
   quantity: number;
@@ -103,7 +111,8 @@ function iso(daysFromNow: number): string {
 
 const ITEMS: SeedItem[] = [
   {
-    code: "INV-2026-0001",
+    code: "INV-2026-0001-LPT",
+    assetType: "LPT",
     name: "Laptop Dell Latitude 5440",
     model: "Latitude 5440",
     quantity: 3,
@@ -122,7 +131,8 @@ const ITEMS: SeedItem[] = [
     acquisitionSource: "HEAD_OFFICE",
   },
   {
-    code: "INV-2026-0002",
+    code: "INV-2026-0002-MON",
+    assetType: "MON",
     name: "Monitor Dell P2422H",
     model: "P2422H",
     quantity: 5,
@@ -138,7 +148,8 @@ const ITEMS: SeedItem[] = [
     acquisitionSource: "HEAD_OFFICE",
   },
   {
-    code: "INV-2026-0003",
+    code: "INV-2026-0003-NET",
+    assetType: "NET",
     name: "Router Asus RT-AX58U",
     model: "RT-AX58U",
     quantity: 2,
@@ -154,7 +165,8 @@ const ITEMS: SeedItem[] = [
     acquisitionSource: "HEAD_OFFICE",
   },
   {
-    code: "INV-2026-0004",
+    code: "INV-2026-0004-ELE",
+    assetType: "ELE",
     name: "Keyboard Logitech K380",
     model: "K380",
     quantity: 10,
@@ -170,7 +182,8 @@ const ITEMS: SeedItem[] = [
     acquisitionSource: "HEAD_OFFICE",
   },
   {
-    code: "INV-2026-0005",
+    code: "INV-2026-0005-FRN",
+    assetType: "FRN",
     name: "Meja Kerja IKEA BEKANT",
     model: "BEKANT 160x80",
     quantity: 4,
@@ -187,7 +200,8 @@ const ITEMS: SeedItem[] = [
     ownerBranch: "Cabang Bandung",
   },
   {
-    code: "INV-2026-0006",
+    code: "INV-2026-0006-FRN",
+    assetType: "FRN",
     name: "Kursi Ergonomis IKEA MARKUS",
     model: "MARKUS",
     quantity: 6,
@@ -206,7 +220,8 @@ const ITEMS: SeedItem[] = [
     ownerBranch: "Cabang Bandung",
   },
   {
-    code: "INV-2026-0007",
+    code: "INV-2026-0007-ELE",
+    assetType: "ELE",
     name: "Proyektor Epson EB-X06",
     model: "EB-X06",
     quantity: 1,
@@ -221,7 +236,8 @@ const ITEMS: SeedItem[] = [
     ownerBranch: "Cabang Surabaya",
   },
   {
-    code: "INV-2026-0008",
+    code: "INV-2026-0008-PRN",
+    assetType: "PRN",
     name: "Printer HP LaserJet M111a",
     model: "M111a",
     quantity: 1,
@@ -238,7 +254,8 @@ const ITEMS: SeedItem[] = [
     disposalReason: "Tidak ekonomis diperbaiki",
   },
   {
-    code: "INV-2026-0009",
+    code: "INV-2026-0009-PC",
+    assetType: "PC",
     name: "PC Desktop HP ProDesk 400",
     model: "ProDesk 400 G9",
     quantity: 2,
@@ -261,7 +278,8 @@ const ITEMS: SeedItem[] = [
     // (soft delete). Karena `deletedAt` terisi, baris ini tidak dihitung di
     // dashboard, daftar barang, maupun ekspor CSV — angka seed yang
     // didokumentasikan di README tetap sama.
-    code: "INV-2026-0010",
+    code: "INV-2026-0010-FRN",
+    assetType: "FRN",
     name: "Lemari Arsip Besi Lion",
     model: "L-42",
     quantity: 2,
@@ -358,6 +376,7 @@ async function main() {
 
     const shared = {
       name: item.name,
+      assetType: item.assetType ?? null,
       model: item.model ?? null,
       quantity: item.quantity,
       unit: item.unit ?? "pcs",
@@ -417,10 +436,10 @@ async function main() {
   }
 
   const first = await prisma.item.findUnique({
-    where: { code: "INV-2026-0001" },
+    where: { code: "INV-2026-0001-LPT" },
   });
   const sixth = await prisma.item.findUnique({
-    where: { code: "INV-2026-0006" },
+    where: { code: "INV-2026-0006-FRN" },
   });
   const gudang = locationMap.get("Gudang A");
   const server = locationMap.get("Ruang Server");

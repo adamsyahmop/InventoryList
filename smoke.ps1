@@ -248,6 +248,9 @@ $itemsSearchReason = Hit '/items?q=tidak%20ekonomis' $token
 
 # Barang yang sudah dijual: id-nya dicari lewat pencarian kode.
 $soldSearch = Hit '/items?q=INV-2026-0009' $token
+# Kode contoh seed kini memakai akhiran jenis, jadi pencarian dengan kode utuh
+# (`...-PC`) juga harus menemukan barangnya — bukti `searchKey` ikut diperbarui.
+$soldSearchSuffix = Hit '/items?q=INV-2026-0009-PC' $token
 $soldId = $null
 $soldMatch = [regex]::Match($soldSearch.Body, '/items/([A-Za-z0-9_-]{15,})')
 if ($soldMatch.Success) { $soldId = $soldMatch.Groups[1].Value }
@@ -413,6 +416,12 @@ HasText 'items/new' $newItem.Body 'Kosongkan untuk dibuat otomatis'
 HasText 'items/new' $newItem.Body 'Jenis barang'
 HasText 'items/new' $newItem.Body '<option value="PC">'
 HasText 'items/new' $newItem.Body '<option value="LPT">'
+# Kode barang contoh di seed sudah ikut format baru (bersuffix jenis), dan nilai
+# itu harus konsisten di daftar, ekspor CSV, serta pencarian berbasis searchKey.
+HasText 'items' $items.Body 'INV-2026-0001-LPT'
+Check 'api/export memuat kode bersuffix' ($csv.Body.Contains('INV-2026-0001-LPT')) $true
+Check 'auth GET /items?q=INV-2026-0009-PC status' $soldSearchSuffix.Code 200
+HasText 'items(q=INV-2026-0009-PC)' $soldSearchSuffix.Body 'PC Desktop HP ProDesk 400'
 
 if ($detail) {
   HasText 'detail' $detail.Body 'Jenis barang'
@@ -432,8 +441,9 @@ if ($detail) {
   # SKU yang tercetak harus sama dengan yang tampil di halaman detail, dan QR
   # menyimpan URL detail (bukan kode) supaya label tetap sah walau kode/nama
   # barang nanti diubah.
-  # Suffix jenis hanya ada pada kode yang dibuat server; kode lama (mis.
-  # INV-2026-0009) tetap tanpa suffix, jadi keduanya harus cocok.
+  # Regex sengaja toleran dua format: kode contoh seed & kode terbitan server
+  # bersuffix jenis (`INV-2026-0009-PC`), sedangkan kode lama/manual yang
+  # diketik tanpa suffix (`INV-2026-0009`) tetap sah. Keduanya harus cocok.
   $detailCode = [regex]::Match($detail.Body, 'INV-\d{4}-\d{4}(-[A-Z]+)?').Value
   Check 'detail memuat kode barang' ($detailCode.Length -gt 0) $true
   HasText 'label memuat kode yang sama' $label.Body $detailCode
