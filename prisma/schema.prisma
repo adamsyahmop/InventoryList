@@ -1,0 +1,226 @@
+// Prisma schema — Inventory List
+// Docs: https://pris.ly/d/prisma-schema
+//
+// CATATAN MIGRASI (SQLite -> PostgreSQL):
+// Ganti `provider` di bawah menjadi "postgresql" lalu buat migration baru.
+// Seluruh model sengaja hanya memakai tipe yang portabel
+// (String, Int, DateTime, Boolean, enum) tanpa tipe khusus SQLite/Postgres.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// Siklus hidup barang
+enum ItemStatus {
+  AVAILABLE // tersedia di lokasi
+  IN_USE // sedang dipakai
+  BORROWED // sedang dipinjam
+  MAINTENANCE // dalam perbaikan
+  LOST // hilang
+  DISPOSED // dibuang / dimusnahkan
+  SOLD // dijual
+}
+
+/// Kondisi fisik barang
+enum ItemCondition {
+  NEW // baru
+  GOOD // baik
+  FAIR // cukup
+  NEEDS_REPAIR // perlu perbaikan
+  DAMAGED // rusak berat
+}
+
+/// Sumber perolehan / pendanaan barang.
+/// Menjawab "siapa yang membeli": kantor pusat atau cabang itu sendiri.
+/// Sengaja dipisah dari `Category` (barang APA) dan `Location` (barang DI MANA).
+enum AcquisitionSource {
+  HEAD_OFFICE // dibeli / dibiayai kantor pusat
+  BRANCH // dibeli / dibiayai cabang
+}
+
+/// Cabang / unit kerja (master data)
+model Branch {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String   @unique
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  locations    Location[]
+  /// Barang yang dibeli / dibiayai cabang ini.
+  sourcedItems Item[]     @relation("ItemSourceBranch")
+  /// Barang yang menjadi aset milik cabang ini.
+  ownedItems   Item[]     @relation("ItemOwnerBranch")
+
+  @@index([name])
+  @@map("branches")
+}
+
+/// Kategori barang (master data)
+model Category {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  code        String?  @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items Item[]
+
+  @@map("categories")
+}
+
+/// Merek barang (master data)
+model Brand {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items Item[]
+
+  @@map("brands")
+}
+
+/// Lokasi aktual barang (master data)
+model Location {
+  id        String   @id @default(cuid())
+  name      String
+  building  String?
+  floor     String?
+  room      String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Cabang tempat lokasi ini berada. Satu cabang boleh punya banyak ruangan,
+  /// jadi cabang tidak dijadikan bagian dari `name` saja.
+  branchId String?
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  items     Item[]
+  movesFrom ItemMovement[] @relation("MovementFromLocation")
+  movesTo   ItemMovement[] @relation("MovementToLocation")
+
+  @@index([name])
+  @@index([branchId])
+  @@map("locations")
+}
+
+/// Supplier / vendor (master data)
+model Supplier {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  contact   String?
+  phone     String?
+  email     String?
+  address   String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items Item[]
+
+  @@map("suppliers")
+}
+
+/// Data utama barang
+model Item {
+  id   String @id @default(cuid())
+  /// Kode unik yang dibaca manusia, contoh: INV-2026-0001
+  code String @unique
+
+  name          String
+  model         String?
+  quantity      Int           @default(1)
+  unit          String        @default("pcs")
+  purchaseDate  DateTime?
+  /// Harga disimpan sebagai integer rupiah (tanpa desimal) agar portabel
+  price         Int           @default(0)
+  invoiceNo     String?
+  warrantyUntil DateTime?
+  condition     ItemCondition @default(GOOD)
+  status        ItemStatus    @default(AVAILABLE)
+  assignedTo    String?
+  serialNumber  String?
+  photoUrl      String?
+  notes         String?
+
+  /// Kolom turunan (lowercase) untuk pencarian case-insensitive yang
+  /// berperilaku sama di SQLite maupun PostgreSQL.
+  searchKey String @default("")
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  brandId    String?
+  brand      Brand?    @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  supplierId String?
+  supplier   Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+
+  /// Siapa yang membeli/membiayai barang ini.
+  acquisitionSource AcquisitionSource @default(HEAD_OFFICE)
+  /// Cabang pembeli; hanya diisi bila `acquisitionSource` = BRANCH.
+  sourceBranchId    String?
+  sourceBranch      Branch?           @relation("ItemSourceBranch", fields: [sourceBranchId], references: [id], onDelete: SetNull)
+  /// Pemilik aset. Barang bisa dibeli pusat tapi jadi aset cabang, atau sebaliknya.
+  ownerBranchId     String?
+  ownerBranch       Branch?           @relation("ItemOwnerBranch", fields: [ownerBranchId], references: [id], onDelete: SetNull)
+
+  /// Metadata pelepasan aset. `price` tetap menyimpan harga PEROLEHAN (tidak
+  /// pernah dinolkan) supaya nilai historis & audit tidak hilang; yang
+  /// dikeluarkan dari "nilai aset aktif" adalah statusnya.
+  disposedAt     DateTime?
+  disposalReason String?
+  soldAt         DateTime?
+  /// Harga jual aktual; berbeda dari `price` yang merupakan harga beli.
+  soldPrice      Int?
+
+  movements ItemMovement[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  /// Soft delete: data tidak benar-benar dihapus dari database
+  deletedAt DateTime?
+  createdBy String?
+
+  @@index([searchKey])
+  @@index([status])
+  @@index([categoryId])
+  @@index([locationId])
+  @@index([sourceBranchId])
+  @@index([ownerBranchId])
+  @@index([deletedAt])
+  @@map("items")
+}
+
+/// Riwayat perpindahan lokasi & perubahan status barang
+model ItemMovement {
+  id             String      @id @default(cuid())
+  itemId         String
+  fromLocationId String?
+  toLocationId   String?
+  fromStatus     ItemStatus?
+  toStatus       ItemStatus?
+  quantity       Int         @default(1)
+  reason         String?
+  notes          String?
+  movedBy        String?
+  movedAt        DateTime    @default(now())
+
+  item         Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  fromLocation Location? @relation("MovementFromLocation", fields: [fromLocationId], references: [id], onDelete: SetNull)
+  toLocation   Location? @relation("MovementToLocation", fields: [toLocationId], references: [id], onDelete: SetNull)
+
+  @@index([itemId])
+  @@index([movedAt])
+  @@map("item_movements")
+}

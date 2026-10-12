@@ -1,0 +1,187 @@
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+
+## Inventory List
+
+Aplikasi pencatatan inventaris barang: kode unik, nama, merek, jenis/kategori,
+tanggal beli, harga, lokasi, supplier, garansi, kondisi, dan status — lengkap
+dengan cabang (lokasi, pembeli, pemilik), metadata pelepasan aset (dibuang /
+dijual), riwayat pergerakan barang, halaman **Sampah** (soft delete +
+pemulihan), serta ekspor CSV.
+
+Stack: **Next.js 16.4.0** (Turbopack, Cache Components + Partial Prefetching) ·
+**Prisma 7.10.0** · **SQLite** (`dev.db`) · **Zod** · Tailwind CSS 4.
+
+> Halaman aplikasi berada di `src/app/(app)/`, bukan `app/page.tsx`. Proteksi
+> rute ada di `src/proxy.ts` (Proxy Next.js 16, Node.js runtime).
+
+## Setup & menjalankan
+
+```bash
+cp .env.example .env     # lalu sesuaikan APP_PASSWORD & SESSION_SECRET
+npm install
+npx prisma migrate deploy # atau: npx prisma migrate dev
+npm run seed             # isi data contoh (10 barang, master, riwayat pergerakan)
+npm run dev              # http://localhost:3000
+```
+
+Variabel lingkungan yang dipakai (`src/lib/session.ts`):
+
+| Variabel | Fungsi |
+| --- | --- |
+| `DATABASE_URL` | Koneksi database (`file:./dev.db` untuk SQLite) |
+| `APP_PASSWORD` | Password halaman login (default `admin`) |
+| `SESSION_SECRET` | Kunci HMAC penanda tangan cookie sesi |
+
+## Verifikasi (smoke test)
+
+`smoke.ps1` menguji runtime end-to-end lewat HTTP: proteksi Proxy tanpa cookie,
+login sungguhan lewat POST form (password benar → 303 + cookie, password salah →
+pesan error), semua halaman utama dengan cookie sesi, isi konten penting
+(termasuk angka dashboard dan nilai aset aktif vs nilai perolehan), filter
+cabang/sumber, ekspor CSV, empty state filter, dan UI 404. Total
+**157 pemeriksaan**.
+
+Bagian **SAMPAH** di skrip itu menguji soft delete secara end-to-end: barang
+terhapus tampil di `/items/terhapus` dan absen dari daftar aktif/CSV, tombol
+Edit dan form pergerakan tidak tersedia untuk barang terhapus, lalu aksi
+**Pulihkan** benar-benar dieksekusi (POST multipart form server action, jalur
+tanpa JavaScript) dan diverifikasi lewat daftar aktif, empty state Sampah, serta
+baris riwayat baru. Di akhir, barang dihapus lagi supaya isi Sampah kembali
+seperti kondisi seed.
+
+```bash
+npm run build
+npm run start -- -p 3100        # jalankan di terminal terpisah
+powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke.ps1
+```
+
+Skrip mencetak `TOTAL: <n> pemeriksaan, <m> gagal` dan `exit 1` bila ada yang
+gagal. Token sesi dibuat manual di dalam skrip memakai HMAC-SHA256, jadi
+konstanta `$secret` di `smoke.ps1` **harus sama** dengan `SESSION_SECRET` di
+`.env`. Blok login POST membaca `APP_PASSWORD` langsung dari `.env` (fallback
+`admin`), jadi tidak ada password yang di-hardcode di skrip.
+
+> Catatan: tiap run smoke menulis satu baris audit `Pemulihan dari Sampah` yang
+> **tidak dihapus** oleh `npm run seed` (seed hanya membuat movement untuk barang
+> yang belum punya, dan fixture-nya cuma 2 pergerakan). Jadi angka "pergerakan"
+> yang dicetak seed naik 1 setiap kali smoke dijalankan, dan pemeriksaan riwayat
+> di skrip sengaja dihitung sebagai **delta**, bukan jumlah tetap. Untuk reset
+> bersih: hapus `dev.db` → `npx prisma migrate deploy` → `npm run seed`.
+
+> Hindari karakter non-ASCII (`×`, `·`) sebagai teks yang dicari di `smoke.ps1`:
+> Windows PowerShell 5.1 membaca skrip UTF-8 tanpa BOM sebagai ANSI sehingga
+> pencocokannya gagal. Pakai potongan ASCII saja.
+
+> Catatan: request ke `/items/<id-yang-tidak-ada>` mengembalikan **HTTP 200**
+> dengan UI 404 di dalam body. Ini perilaku resmi Next.js — `notFound()` dipanggil
+> setelah shell streaming, sehingga status code sudah terkunci di `200`. Next.js
+> menambahkan `<meta name="robots" content="noindex">` sebagai kompensasi.
+
+> Catatan: dashboard dan `/items/[id]` memakai `daysUntil()` yang membaca waktu
+> sekarang. Cache Components menolak nilai waktu tidak stabil di dalam shell
+> statis, jadi kedua boundary itu diawali `await connection()`. Bila lupa, dev
+> overlay menampilkan `Blocking Route Server: Next.js encountered the unstable
+> value new Date() while prerendering`. Error ini **tidak** muncul di
+> `next build` (rute `◐` tanpa `generateStaticParams` hanya membuat shell
+> fallback), jadi biasakan cek `dev.err.log` setiap menambah pemakaian
+> `new Date()` / `Date.now()` baru di server component.
+
+## Catatan data
+
+- **`Item.price` adalah harga SATUAN**, bukan total (form barang berlabel
+  `Harga satuan (Rp)`). Karena itu nilai inventaris di dashboard dihitung
+  `SUM(price * quantity)` — angka yang sama dengan "Total nilai" di halaman
+  detail barang.
+- `Item.deletedAt` menerapkan soft delete: daftar aktif, dashboard, dan ekspor
+  CSV memfilter `deletedAt: null`. Pengecualiannya disengaja — `getItem()` dan
+  `listDeletedItems()` di `src/lib/queries.ts` **tidak** menyaring, supaya
+  barang terhapus tetap bisa dibuka (halaman detailnya menampilkan alert) dan
+  dipulihkan. Menyaring `deletedAt` di `getItem()` membuat aksi pemulihan tidak
+  bisa dijangkau sama sekali.
+- Data seed memuat satu barang yang sengaja sudah terhapus (`INV-2026-0010`)
+  sebagai bahan uji halaman Sampah. Karena ter-soft-delete, angka dashboard dan
+  ekspor CSV **tidak** terpengaruh.
+- Kolom `Item.searchKey` menyimpan versi lowercase dari kode, nama, merek,
+  lokasi, cabang (lokasi/pembeli/pemilik), supplier, alasan pembuangan, dan
+  catatan. Pencarian memakai kolom ini supaya case-insensitive dan berperilaku
+  sama di SQLite maupun PostgreSQL.
+
+## Sampah (soft delete & pemulihan)
+
+Menghapus barang **tidak** membuang datanya — hanya mengisi `deletedAt`,
+sehingga riwayat pergerakan dan nilai perolehannya tetap utuh untuk audit.
+
+- `/items/terhapus` (menu **Sampah**) menampilkan barang terhapus: kode, nama,
+  waktu dihapus, status terakhir, dan nilai. Tiap baris punya tombol
+  **Pulihkan**; halaman detailnya tetap bisa dibuka dan menampilkan alert
+  "Barang ini sudah dihapus…" beserta alasan pembuangannya.
+- `restoreItemAction` (`src/lib/actions/items.ts`) menolak item yang tidak
+  terhapus, lalu **dalam satu transaksi** mengosongkan `deletedAt`,
+  mengembalikan status ke `AVAILABLE`, dan menulis `ItemMovement` beralasan
+  `"Pemulihan dari Sampah"`. Setelah itu `updateTag(CACHE_TAGS.items)` dipanggil
+  supaya daftar aktif, Sampah, dashboard, dan riwayat langsung konsisten.
+- Menghapus juga memaksa `status = DISPOSED`, jadi kolom "Status terakhir" di
+  Sampah selalu `Dibuang` dan pemulihan selalu mengembalikan barang ke
+  `AVAILABLE` — status sebelum dihapus tidak disimpan.
+- Barang terhapus tidak bisa disunting (`/items/[id]/edit` → not-found) dan
+  tidak punya form pergerakan di halaman detailnya, jadi statusnya tidak bisa
+  "diubah diam-diam" selama berada di Sampah.
+- Semua aksi ini diuji end-to-end oleh bagian **SAMPAH** di `smoke.ps1`.
+
+## Cabang & pelepasan aset
+
+Tiga dimensi yang sengaja dipisah:
+
+| Dimensi | Pertanyaan | Kolom |
+| --- | --- | --- |
+| Kategori | barang **apa** | `Item.categoryId` |
+| Lokasi | barang **di mana** | `Item.locationId` (+ `Location.branchId`) |
+| Perolehan / kepemilikan | **dibeli siapa / milik siapa** | `Item.acquisitionSource`, `Item.sourceBranchId`, `Item.ownerBranchId` |
+
+- `Branch` (kode unik, mis. `BDG`) dikelola di `/master` bersama kategori,
+  merek, lokasi, dan supplier. Lokasi boleh ditautkan ke satu cabang.
+- `ownerBranchId` kosong berarti aset milik **Kantor pusat**.
+- **Filter** `?branchId=` di `/items` menyaring berdasarkan cabang **lokasi**
+  (barang ada di mana), sedangkan kartu "Nilai aset aktif per cabang" di
+  dashboard menyaring berdasarkan **kepemilikan** (aset ini milik siapa).
+- Barang `DISPOSED` (dibuang) dan `SOLD` (dijual) **tidak** dihapus dan `price`
+  -nya **tidak** dinolkan — jejak audit tetap utuh. Keduanya hanya dikeluarkan
+  dari perhitungan **nilai aset aktif** (`INACTIVE_STATUSES` di
+  `src/lib/constants.ts`), dan muncul terpisah di kartu "Pelepasan aset"
+  (nilai dibuang, nilai dijual, hasil penjualan dari `soldPrice`).
+- Server yang menyelaraskan metadata pelepasan: `toItemWriteData()` di
+  `src/lib/action-utils.ts` membersihkan `disposedAt` / `disposalReason` bila
+  status bukan `DISPOSED`, dan `soldAt` / `soldPrice` bila status bukan `SOLD`.
+- Ekspor CSV (`/api/export`) memuat kolom tambahan: `Cabang Lokasi`,
+  `Sumber Perolehan`, `Cabang Pembeli`, `Pemilik Aset`, `Tanggal Dibuang`,
+  `Alasan Dibuang`, `Tanggal Jual`, `Harga Jual`.
+
+## Getting Started
+
+First, run the development server:
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+
+## Learn More
+
+To learn more about Next.js, take a look at the following resources:
+
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

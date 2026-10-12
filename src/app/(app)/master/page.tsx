@@ -1,0 +1,228 @@
+import { Suspense } from "react";
+import type { Metadata } from "next";
+import {
+  MasterManager,
+  type MasterFieldDef,
+  type MasterRow,
+} from "@/components/master/master-manager";
+import { Card, PageHeader } from "@/components/ui/card";
+import {
+  deleteBranchAction,
+  deleteBrandAction,
+  deleteCategoryAction,
+  deleteLocationAction,
+  deleteSupplierAction,
+  saveBranchAction,
+  saveBrandAction,
+  saveCategoryAction,
+  saveLocationAction,
+  saveSupplierAction,
+} from "@/lib/actions/master";
+import { getMasterData } from "@/lib/queries";
+
+export const metadata: Metadata = { title: "Data Master" };
+
+const BRANCH_FIELDS: MasterFieldDef[] = [
+  { name: "name", label: "Nama cabang", required: true, placeholder: "Cabang Bandung" },
+  { name: "code", label: "Kode cabang", required: true, placeholder: "BDG" },
+  { name: "notes", label: "Catatan", type: "textarea" },
+];
+
+const CATEGORY_FIELDS: MasterFieldDef[] = [
+  { name: "name", label: "Nama kategori", required: true, placeholder: "Elektronik" },
+  { name: "code", label: "Kode", placeholder: "ELK" },
+  { name: "description", label: "Deskripsi", type: "textarea" },
+];
+
+const BRAND_FIELDS: MasterFieldDef[] = [
+  { name: "name", label: "Nama merek", required: true, placeholder: "Dell" },
+  { name: "notes", label: "Catatan", type: "textarea" },
+];
+
+/**
+ * Opsi "Cabang" pada lokasi diisi dari data cabang, jadi daftar field ini
+ * disusun ulang di dalam komponen async, bukan sebagai konstanta statis.
+ */
+const LOCATION_FIELDS: MasterFieldDef[] = [
+  { name: "name", label: "Nama lokasi", required: true, placeholder: "Gudang A" },
+  { name: "building", label: "Gedung" },
+  { name: "floor", label: "Lantai" },
+  { name: "room", label: "Ruangan" },
+  { name: "branchId", label: "Cabang", type: "select" },
+  { name: "notes", label: "Catatan", type: "textarea" },
+];
+
+const SUPPLIER_FIELDS: MasterFieldDef[] = [
+  { name: "name", label: "Nama supplier", required: true, placeholder: "PT Sumber Komputer" },
+  { name: "contact", label: "Narahubung" },
+  { name: "phone", label: "Telepon" },
+  { name: "email", label: "Email", type: "email", placeholder: "sales@contoh.id" },
+  { name: "address", label: "Alamat", type: "textarea" },
+  { name: "notes", label: "Catatan", type: "textarea" },
+];
+
+/** Gabungkan bagian yang terisi menjadi satu baris keterangan. */
+function joinMeta(...parts: Array<string | null | undefined>) {
+  return parts.filter(Boolean).join(" · ") || undefined;
+}
+
+function MasterSkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      {[0, 1, 2, 3, 4].map((index) => (
+        <Card key={index} className="h-56 animate-pulse bg-neutral-100" />
+      ))}
+    </div>
+  );
+}
+
+async function MasterData() {
+  const { categories, brands, locations, suppliers, branches } =
+    await getMasterData();
+
+  const branchNames = new Map(branches.map((branch) => [branch.id, branch.name]));
+  const branchLabel = (branchId: string | null) =>
+    branchId ? (branchNames.get(branchId) ?? "Cabang tidak dikenal") : null;
+
+  const locationFields: MasterFieldDef[] = LOCATION_FIELDS.map((field) =>
+    field.name === "branchId"
+      ? {
+          ...field,
+          options: [
+            { value: "", label: "— Tanpa cabang —" },
+            ...branches.map((branch) => ({
+              value: branch.id,
+              label: `${branch.name} (${branch.code})`,
+            })),
+          ],
+        }
+      : field,
+  );
+
+  const branchRows: MasterRow[] = branches.map((branch) => ({
+    id: branch.id,
+    label: branch.name,
+    meta: joinMeta(branch.code, branch.notes),
+    values: {
+      name: branch.name,
+      code: branch.code,
+      notes: branch.notes ?? "",
+    },
+  }));
+
+  const categoryRows: MasterRow[] = categories.map((category) => ({
+    id: category.id,
+    label: category.name,
+    meta: joinMeta(category.code, category.description),
+    values: {
+      name: category.name,
+      code: category.code ?? "",
+      description: category.description ?? "",
+    },
+  }));
+
+  const brandRows: MasterRow[] = brands.map((brand) => ({
+    id: brand.id,
+    label: brand.name,
+    meta: joinMeta(brand.notes),
+    values: { name: brand.name, notes: brand.notes ?? "" },
+  }));
+
+  const locationRows: MasterRow[] = locations.map((location) => ({
+    id: location.id,
+    label: location.name,
+    meta: joinMeta(
+      location.building,
+      location.floor,
+      location.room,
+      branchLabel(location.branchId),
+      location.notes,
+    ),
+    values: {
+      name: location.name,
+      building: location.building ?? "",
+      floor: location.floor ?? "",
+      room: location.room ?? "",
+      branchId: location.branchId ?? "",
+      notes: location.notes ?? "",
+    },
+  }));
+
+  const supplierRows: MasterRow[] = suppliers.map((supplier) => ({
+    id: supplier.id,
+    label: supplier.name,
+    meta: joinMeta(supplier.contact, supplier.phone, supplier.email),
+    values: {
+      name: supplier.name,
+      contact: supplier.contact ?? "",
+      phone: supplier.phone ?? "",
+      email: supplier.email ?? "",
+      address: supplier.address ?? "",
+      notes: supplier.notes ?? "",
+    },
+  }));
+
+  return (
+    <div className="flex flex-col gap-4">
+      <MasterManager
+        title="Cabang"
+        description="Unit kerja pemilik aset. Dipakai pada barang (sumber & pemilik) dan lokasi."
+        fields={BRANCH_FIELDS}
+        rows={branchRows}
+        saveAction={saveBranchAction}
+        deleteAction={deleteBranchAction}
+        emptyText="Belum ada cabang."
+      />
+      <MasterManager
+        title="Kategori"
+        description="Pengelompokan jenis barang."
+        fields={CATEGORY_FIELDS}
+        rows={categoryRows}
+        saveAction={saveCategoryAction}
+        deleteAction={deleteCategoryAction}
+        emptyText="Belum ada kategori."
+      />
+      <MasterManager
+        title="Merek"
+        description="Produsen atau merek dagang barang."
+        fields={BRAND_FIELDS}
+        rows={brandRows}
+        saveAction={saveBrandAction}
+        deleteAction={deleteBrandAction}
+        emptyText="Belum ada merek."
+      />
+      <MasterManager
+        title="Lokasi"
+        description="Tempat penyimpanan barang, bisa ditautkan ke satu cabang."
+        fields={locationFields}
+        rows={locationRows}
+        saveAction={saveLocationAction}
+        deleteAction={deleteLocationAction}
+        emptyText="Belum ada lokasi."
+      />
+      <MasterManager
+        title="Supplier"
+        description="Pemasok barang inventaris."
+        fields={SUPPLIER_FIELDS}
+        rows={supplierRows}
+        saveAction={saveSupplierAction}
+        deleteAction={deleteSupplierAction}
+        emptyText="Belum ada supplier."
+      />
+    </div>
+  );
+}
+
+export default function MasterPage() {
+  return (
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Data Master"
+        description="Kelola cabang, kategori, merek, lokasi, dan supplier yang dipakai pada form barang."
+      />
+      <Suspense fallback={<MasterSkeleton />}>
+        <MasterData />
+      </Suspense>
+    </div>
+  );
+}
