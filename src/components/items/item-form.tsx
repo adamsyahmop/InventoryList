@@ -16,6 +16,8 @@ import {
   DISPOSAL_REASON_OPTIONS,
   ITEM_CONDITION_LABELS,
   ITEM_STATUS_LABELS,
+  ITEM_TYPE_LABELS,
+  ITEM_TYPE_VALUES,
   UNIT_OPTIONS,
   isInactiveStatus,
 } from "@/lib/constants";
@@ -23,6 +25,7 @@ import {
 export type ItemFormValues = {
   id: string;
   code: string;
+  assetType: string;
   name: string;
   brandId: string;
   model: string;
@@ -53,6 +56,7 @@ export type ItemFormValues = {
 export const EMPTY_ITEM_FORM: ItemFormValues = {
   id: "",
   code: "",
+  assetType: "",
   name: "",
   brandId: "",
   model: "",
@@ -132,15 +136,40 @@ export function ItemForm({
           description="Kode unik dan nama dipakai untuk pencarian cepat."
         />
         <CardBody className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Field label="Kode barang" htmlFor="code" required error={errorOf("code")} hint="Contoh: INV-2026-001">
+          <Field
+            label="Kode barang"
+            htmlFor="code"
+            error={errorOf("code")}
+            hint="Kosongkan untuk dibuat otomatis, mis. INV-2026-0011-LPT"
+          >
             <Input
               id="code"
               name="code"
               defaultValue={values.code}
-              placeholder="INV-2026-001"
+              placeholder="INV-2026-0011-LPT"
               invalid={Boolean(errorOf("code"))}
-              required
             />
+          </Field>
+
+          <Field
+            label="Jenis barang"
+            htmlFor="assetType"
+            error={errorOf("assetType")}
+            hint="Dipakai sebagai akhiran kode otomatis."
+          >
+            <Select
+              id="assetType"
+              name="assetType"
+              defaultValue={values.assetType}
+              invalid={Boolean(errorOf("assetType"))}
+            >
+              <option value="">— Tanpa jenis —</option>
+              {ITEM_TYPE_VALUES.map((value) => (
+                <option key={value} value={value}>
+                  {ITEM_TYPE_LABELS[value]}
+                </option>
+              ))}
+            </Select>
           </Field>
 
           <Field label="Nama barang" htmlFor="name" required error={errorOf("name")} className="sm:col-span-2">

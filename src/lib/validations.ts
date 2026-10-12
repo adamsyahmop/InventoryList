@@ -4,6 +4,7 @@ import {
   ItemCondition,
   ItemStatus,
 } from "@/generated/prisma/enums";
+import { ITEM_TYPE_VALUES } from "@/lib/constants";
 
 /** FormData mengirim string kosong untuk field yang tidak diisi. */
 const emptyToUndefined = (value: unknown) =>
@@ -51,9 +52,25 @@ const enumOrDefault = <T extends z.ZodType>(schema: T, fallback: z.input<T>) =>
   z.preprocess((value) => emptyToUndefined(value) ?? fallback, schema);
 
 export const itemSchema = z.object({
-  code: requiredString("Kode barang", 60).regex(
-    /^[A-Za-z0-9][A-Za-z0-9._/-]*$/,
-    "Kode hanya boleh huruf, angka, dan karakter . _ / -",
+  // Kode boleh dikosongkan saat menambah barang: server membuat nomor urut
+  // berikutnya lewat `generateItemCode()` (mis. INV-2026-0011-LPT). Saat
+  // menyunting, kode kosong berarti "pertahankan kode yang sudah ada".
+  code: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .trim()
+      .max(60, "Kode barang maksimal 60 karakter")
+      .regex(
+        /^[A-Za-z0-9][A-Za-z0-9._/-]*$/,
+        "Kode hanya boleh huruf, angka, dan karakter . _ / -",
+      )
+      .optional(),
+  ),
+  // Jenis aset: jadi akhiran kode sekaligus informasi yang mudah difilter.
+  assetType: z.preprocess(
+    emptyToUndefined,
+    z.enum(ITEM_TYPE_VALUES, { error: "Jenis barang tidak valid" }).optional(),
   ),
   name: requiredString("Nama barang", 200),
   brandId: optionalId,

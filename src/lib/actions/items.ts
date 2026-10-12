@@ -10,6 +10,7 @@ import {
   type ActionState,
 } from "@/lib/action-utils";
 import { requireAuth } from "@/lib/auth";
+import { buildItemCode, itemCodeSequence } from "@/lib/constants";
 import { prisma } from "@/lib/prisma";
 import { CACHE_TAGS } from "@/lib/queries";
 import { itemSchema, movementSchema, toFieldErrors } from "@/lib/validations";
@@ -18,6 +19,25 @@ function invalidateItemCaches() {
   updateTag(CACHE_TAGS.items);
   updateTag(CACHE_TAGS.movements);
   updateTag(CACHE_TAGS.dashboard);
+}
+
+/**
+ * Kode barang berikutnya untuk tahun berjalan, dengan akhiran jenis aset:
+ * `INV-2026-0011-LPT`. Nomor bersifat global per tahun (bukan per jenis) dan
+ * TIDAK dipakai ulang walau barangnya dihapus, supaya kode yang sudah ditempel
+ * di fisik barang tidak menunjuk ke barang lain. Bentrok (mis. dua penyimpanan
+ * bersamaan) tetap ditolak kolom `code` yang `@unique`.
+ */
+async function generateItemCode(assetType?: string | null): Promise<string> {
+  const year = new Date().getFullYear();
+  const rows = await prisma.item.findMany({
+    where: { code: { startsWith: `INV-${year}-` } },
+    select: { code: true },
+  });
+
+  const next =
+    rows.reduce((max, row) => Math.max(max, itemCodeSequence(row.code)), 0) + 1;
+  return buildItemCode(year, next, assetType);
 }
 
 export async function createItemAction(
@@ -39,10 +59,12 @@ export async function createItemAction(
   let createdId = "";
 
   try {
+    // Kode dikosongkan di form → server memilih nomor urut berikutnya.
+    const code = data.code ?? (await generateItemCode(data.assetType));
     const searchKey = await buildItemSearchKey(data);
 
     const created = await prisma.item.create({
-      data: { ...toItemWriteData(data, searchKey), createdBy: "admin" },
+      data: { ...toItemWriteData(data, searchKey, code), createdBy: "admin" },
     });
     createdId = created.id;
 
@@ -101,7 +123,8 @@ export async function updateItemAction(
     await prisma.$transaction(async (tx) => {
       await tx.item.update({
         where: { id },
-        data: toItemWriteData(data, searchKey),
+        // Kode kosong saat menyunting = pertahankan kode yang sudah dipakai.
+        data: toItemWriteData(data, searchKey, data.code ?? existing.code),
       });
 
       // Hanya tulis riwayat kalau lokasi atau status benar-benar berubah,

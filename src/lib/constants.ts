@@ -97,3 +97,68 @@ export const UNIT_OPTIONS = [
 ] as const;
 
 export const ITEMS_PER_PAGE = 10;
+
+/**
+ * Jenis aset. Menjadi **akhiran kode barang** supaya kode tetap pendek tetapi
+ * langsung memberi tahu jenis barangnya: `INV-2026-0011-LPT`.
+ * Diurutkan dari yang paling sering dipakai; `LAIN` selalu tersedia sebagai
+ * pelarian agar baris lama/manual tetap bisa diberi jenis.
+ */
+export const ITEM_TYPE_VALUES = [
+  "PC",
+  "LPT",
+  "PRN",
+  "MON",
+  "NET",
+  "MOB",
+  "FRN",
+  "ELE",
+  "LAIN",
+] as const;
+
+export type ItemTypeCode = (typeof ITEM_TYPE_VALUES)[number];
+
+export const ITEM_TYPE_LABELS: Record<ItemTypeCode, string> = {
+  PC: "Komputer / PC desktop",
+  LPT: "Laptop / notebook",
+  PRN: "Printer / scanner",
+  MON: "Monitor / layar",
+  NET: "Perangkat jaringan",
+  MOB: "Perangkat mobile",
+  FRN: "Furnitur",
+  ELE: "Elektronik lain",
+  LAIN: "Lain-lain",
+};
+
+/** Jenis aset dianggap terdaftar hanya bila ada di `ITEM_TYPE_VALUES`. */
+export function isItemTypeCode(value: string | null | undefined): value is ItemTypeCode {
+  return value !== null && value !== undefined && (ITEM_TYPE_VALUES as readonly string[]).includes(value);
+}
+
+/** Bangun kode barang: `INV-2026-0011` atau `INV-2026-0011-LPT`. */
+export function buildItemCode(
+  year: number,
+  sequence: number,
+  type?: string | null,
+): string {
+  const base = `INV-${year}-${String(sequence).padStart(4, "0")}`;
+  return type ? `${base}-${type}` : base;
+}
+
+/**
+ * Nomor urut dari kode `INV-<tahun>-<nomor>[-jenis]`. Mengembalikan 0 untuk kode
+ * yang tidak mengikuti pola tersebut (mis. kode lama yang diketik manual),
+ * sehingga tidak mengacaukan perhitungan nomor berikutnya.
+ */
+export function itemCodeSequence(code: string): number {
+  const match = /^INV-\d{4}-(\d+)/i.exec(code.trim());
+  if (!match) return 0;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** Label jenis aset; nilai tak dikenal dikembalikan apa adanya (jadi terlihat). */
+export function itemTypeLabel(type: string | null | undefined): string | null {
+  if (!type) return null;
+  return isItemTypeCode(type) ? ITEM_TYPE_LABELS[type] : type;
+}

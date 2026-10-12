@@ -1,15 +1,114 @@
 # Catatan Lanjutan — Inventory List
 
-Terakhir diperbarui: 12 Oktober 2026 (sesi lanjutan — halaman Sampah & pemulihan barang).
+Terakhir diperbarui: 12 Oktober 2026 (sesi lanjutan — halaman Sampah & pemulihan
+barang, dilanjutkan kode barang otomatis + QR & label cetak).
 Stack: Next.js 16.4.0 (Turbopack, Cache Components aktif) + Prisma 7.10.0 + SQLite (`dev.db`).
 Repositori: https://github.com/adamsyahmop/InventoryList (branch `main`, commit awal `823b402`).
 Identitas git repo ini: `adamsyahmop` / `adamsyahmop@users.noreply.github.com` (noreply, agar email asli tidak terekspos); `.env.example` di-*unignore* lewat `!.env.example` supaya template tetap ikut ter-commit.
 
 ## Status: aplikasi JALAN dan TERVERIFIKASI ✅
 
-`npm run build` hijau (13/13 halaman), `npm run lint` hijau, `npx tsc --noEmit`
+`npm run build` hijau (14/14 halaman), `npm run lint` hijau, `npx tsc --noEmit`
 hijau, `npm run seed` hijau, dan smoke test end-to-end
-**157 pemeriksaan, 0 gagal**.
+**176 pemeriksaan, 0 gagal**.
+
+## Paket 4 — Kode barang otomatis + QR & label cetak (sesi 12 Oktober 2026)
+
+Tujuan: berhenti mengetik kode manual, sekaligus memberi tiap barang label
+cetak yang bisa dipindai.
+
+### 1. Skema & migrasi
+
+`Item.assetType String?` ditambahkan (nullable, jadi barang lama tetap sah),
+migrasi `prisma/migrations/20261012040005_add_item_asset_type`. Jenis barang
+**bukan** kategori: kategori (`categoryId`, dikelola di `/master`) menjawab
+"barang apa", sedangkan `assetType` adalah klasifikasi aset berlabel pendek.
+
+### 2. Konstanta & validasi
+
+- `src/lib/constants.ts`: `ITEM_TYPE_VALUES`
+  (`PC`, `LPT`, `PRN`, `MON`, `NET`, `MOB`, `FRN`, `ELE`, `LAIN`),
+  `ITEM_TYPE_LABELS`, `isItemTypeCode()`, `buildItemCode()`,
+  `itemCodeSequence()`, `itemTypeLabel()`.
+- `src/lib/validations.ts`: `code` kini **optional** (preprocess string kosong →
+  `undefined`) dan `assetType` berupa enum optional. Kode tidak lagi bagian dari
+  kontrak form, tapi tetap divalidasi ketat bila diisi.
+
+### 3. Kode dibuat server, bukan klien
+
+`generateItemCode()` di `src/lib/actions/items.ts` mencari urutan terbesar dari
+kode berformat `INV-<tahun>-*` lalu menerbitkan nomor berikutnya (tidak mendaur
+ulang nomor, walau barang lama sudah dihapus) dan menyambung suffix jenis.
+`createItemAction` memakainya saat form tidak mengirim kode; `updateItemAction`
+memakai kode dari form, atau mempertahankan kode lama bila kolom dikosongkan.
+`toItemWriteData(data, searchKey, code)` (`src/lib/action-utils.ts`) menerima
+kode hasil keputusan server ini.
+
+Verifikasi runtime: barang uji tanpa kode terbit sebagai
+**`INV-2026-0011-PC`** (jenis PC) — sesuai harapan, dan `@unique` pada
+`Item.code` tetap menjadi jaring pengaman bila terjadi tabrakan.
+
+### 4. Form barang
+
+`src/components/items/item-form.tsx`: kolom Kode tidak lagi `required` dan
+diberi hint "Kosongkan untuk dibuat otomatis", plus Select **Jenis barang**
+baru (`ItemFormValues.assetType`, `EMPTY_ITEM_FORM.assetType`). Halaman
+`/items/[id]/edit` mengisi `assetType` dari item supaya tidak ter-reset.
+
+### 5. QR & halaman label
+
+- `src/lib/qr.ts`: `itemDetailUrl()`, `requestOrigin()` (origin dari header
+  request), dan `qrSvg()` yang memakai library `qrcode` untuk mengeluarkan SVG
+  inline — tanpa layanan gambar eksternal, jadi label tetap bisa dicetak offline.
+- `src/app/(app)/items/[id]/label/page.tsx`: halaman label (QR + kode + nama +
+  jenis + kondisi + lokasi + status), tombol **Cetak label**
+  (`src/components/print-button.tsx`, komponen klien berisi `window.print()`),
+  dan CSS `@media print` dengan `.print-area` supaya hanya label yang tercetak.
+  Halaman ini dibungkus `<Suspense>` karena membaca header request (aturan
+  Cache Components) — hasilnya rute **Partial Prerender**.
+- Kartu **Label QR** + tombol "Cetak label" juga muncul di detail barang
+  (`/items/[id]`), bersama baris `Jenis barang`.
+- **QR memuat URL `/items/<id>`, bukan kodenya** — keputusan sadar: label tetap
+  valid walau kode/nama barang nanti diubah, dan bisa langsung membuka halaman
+  detail. Konsekuensinya `requestOrigin()` membaca header request, jadi dari HP
+  label hanya berfungsi bila aplikasi diakses lewat alamat jaringan/domain, bukan
+  `localhost`.
+
+### 6. `smoke.ps1`: 157 → 176 pemeriksaan (19 baru)
+
+Bagian **KODE OTOMATIS, JENIS BARANG & LABEL QR**:
+
+- `id="code"` ada tapi **tanpa** atribut `required` + hint
+  `Kosongkan untuk dibuat otomatis`, dan pilihan jenis `PC`/`LPT` benar-benar
+  ter-render;
+- detail barang memuat `Jenis barang`, `Label QR`, `Cetak label`, tautan
+  `/items/<id>/label`, QR berupa `<svg`, dan **tidak** menunjuk layanan gambar
+  pihak ketiga;
+- `/items/[id]/label` → 200, memuat `<svg`, aturan cetak `print-area`, kode yang
+  **sama** dengan halaman detail, dan tautan QR ke `/items/<id>`.
+- Bagian ini tidak menulis apa pun ke DB (kode otomatis sudah diverifikasi
+  langsung via POST saat pengembangan), jadi angka dashboard tidak terpengaruh.
+
+### 7. Jebakan yang ditemui
+
+- **Regex kode harus toleran dua format.** Kode lama (`INV-2026-0009`) tidak
+  punya suffix jenis, jadi pola `INV-\d{4}-\d{4}(-[A-Z]+)?` — bukan
+  `INV-\d{4}-\d{4}-[A-Z]+` yang hanya cocok untuk kode baru.
+- **Verifikasi kode otomatis lewat POST butuh skrip khusus, dan itu mengotori
+  data.** Barang uji harus dihapus lagi (hard delete + movement-nya) supaya
+  angka dashboard & ekspor CSV kembali seperti kondisi seed; seed **tidak**
+  menghapusnya sendiri. Setelah dipakai, skrip sementara dihapus
+  (`tmp-verify-code.ps1`, `tmp-cleanup.ts`).
+- **Skrip verifikasi manual: pakai `HttpWebRequest`, bukan `HttpClient`.**
+  `HttpClient` membuang `Cookie` manual; selain itu cookie sesi hanya keluar dari
+  respons **POST `/login` yang pertama** (POST ulang → 400).
+- **Data di luar aplikasi = cache SWR menyajikan isi lama sekali.** Setelah
+  `npm run seed`/hapus manual, render pertama `/items/terhapus` masih bisa kosong;
+  jalankan `smoke.ps1` **dua kali** (run pertama "memanaskan" cache) atau GET
+  halaman itu dua kali.
+- **`prisma db execute --stdin` tidak jalan di shell ini** (gagal karena
+  `prisma7.config.ts` + redirection PowerShell). Untuk operasi DB ad-hoc pakai
+  `npx tsx` + `prisma` dari `src/lib/prisma.ts` (atau `npm run seed`).
 
 ## Paket 3 — Sampah: soft delete & pemulihan (sesi 12 Oktober 2026)
 
@@ -438,7 +537,7 @@ Cookie dari login itu lalu dipakai membuka `/` → 200 dengan angka dashboard ut
 Dengan cookie `inventory_session=<issuedAt>.<hmac>` → semua 200:
 `/`, `/items`, `/items?q=asus&status=AVAILABLE&sort=name_asc&page=1`,
 `/items?page=1&sort=price_desc`, `/items/new`, `/items/[id]`, `/items/[id]/edit`,
-`/items?branchId=<id>`, `/items?acquisitionSource=BRANCH`,
+`/items/[id]/label`, `/items?branchId=<id>`, `/items?acquisitionSource=BRANCH`,
 `/items?acquisitionSource=HEAD_OFFICE`, `/movements`, `/master`, `/api/export`.
 
 Konten yang sudah dipastikan ada:
@@ -583,6 +682,14 @@ berubah), dan `smoke.ps1` **117 pemeriksaan, 0 gagal** (`exit 0`).
    `deletedAt`, `restoreItemAction` mengembalikan status ke `AVAILABLE` sambil
    menulis jejak audit, dan bagian **SAMPAH** di `smoke.ps1` menguji alur
    hapus → pulih → hapus lagi. Rinciannya di bagian "Paket 3" di atas.
+5. ✅ **SELESAI — kode barang otomatis + QR & label cetak (Paket 4).** Kolom Kode
+   boleh dikosongkan (server menerbitkan `INV-<tahun>-<urut>-<jenis>`), ada field
+   **Jenis barang** (`Item.assetType` dengan label manusiawi), dan setiap barang
+   punya halaman label cetak ber-QR di `/items/[id]/label`. Rinciannya di bagian
+   "Paket 4" di atas. Yang **belum** dikerjakan: mencetak **banyak label
+   sekaligus** (mis. dari hasil filter `/items` — perlu rute
+   `/items/labels?<filter>` berisi grid label) dan penanda jenis barang di ikon
+   daftar/dashboard.
 
 ### Sisa ide (belum dikerjakan)
 
@@ -697,11 +804,14 @@ berubah), dan `smoke.ps1` **117 pemeriksaan, 0 gagal** (`exit 0`).
   npm run build
   npm run start -- -p 3100    # terminal terpisah
   npm run seed                # mengembalikan INV-2026-0010 ke kondisi terhapus
-  # GET /items/terhapus dua kali (lihat catatan cache di bawah), lalu:
+  # Cache halaman di-cache dengan stale-while-revalidate: jalankan smoke DUA KALI
+  # (run pertama menyajikan isi lama sekaligus memanaskan cache), lalu:
   powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke.ps1
   ```
 
 - Skrip debug sementara dari sesi 12 Oktober 2026 (`tmp-trash-debug.ps1`,
-  `tmp-grep.ps1`, `tmp-warm.ps1`, `tmp-*.log`, `tmp-detail.html`) sudah
-  **dihapus** — jangan commit file semacam itu; pakai `Get-Html`/`Submit-Action`
-  di `smoke.ps1` kalau butuh membedah HTML.
+  `tmp-grep.ps1`, `tmp-warm.ps1`, `tmp-*.log`, `tmp-detail.html`,
+  `tmp-verify-code.ps1`, `tmp-cleanup.ts`) sudah **dihapus** — jangan commit file
+  semacam itu; pakai `Get-Html`/`Submit-Action` di `smoke.ps1` kalau butuh
+  membedah HTML, dan pakai `npx tsx` + `prisma` dari `src/lib/prisma.ts` untuk
+  membedah database.

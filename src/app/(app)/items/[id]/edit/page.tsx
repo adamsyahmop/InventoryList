@@ -19,6 +19,7 @@ async function EditItemForm({ params }: { params: Promise<{ id: string }> }) {
   const values: ItemFormValues = {
     id: item.id,
     code: item.code,
+    assetType: item.assetType ?? "",
     name: item.name,
     brandId: item.brandId ?? "",
     model: item.model ?? "",

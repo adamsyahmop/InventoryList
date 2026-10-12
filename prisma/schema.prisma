@@ -134,8 +134,14 @@ model Supplier {
 /// Data utama barang
 model Item {
   id   String @id @default(cuid())
-  /// Kode unik yang dibaca manusia, contoh: INV-2026-0001
+  /// Kode unik yang dibaca manusia, contoh: INV-2026-0001.
+  /// Sejak fitur label QR, kode baru memakai akhiran jenis aset supaya lebih
+  /// informatif namun tetap pendek: INV-2026-0011-LPT. Kode lama tidak diubah.
   code String @unique
+  /// Jenis aset (suffix kode), mis. "PC", "LPT", "PRN". Sengaja String dan bukan
+  /// enum supaya daftar jenis bisa ditambah tanpa migrasi; nilai yang sah dijaga
+  /// `ITEM_TYPE_VALUES` di `src/lib/constants.ts` + `assetType` di `validations.ts`.
+  assetType String?
 
   name          String
   model         String?

@@ -117,12 +117,18 @@ export async function buildItemSearchKey(data: ItemInput): Promise<string> {
   );
 }
 
-export function toItemWriteData(data: ItemInput, searchKey: string) {
+export function toItemWriteData(
+  data: ItemInput,
+  searchKey: string,
+  /** Kode final; server yang mengisinya bila form mengosongkan kolom kode. */
+  code: string,
+) {
   const isDisposed = data.status === ItemStatus.DISPOSED;
   const isSold = data.status === ItemStatus.SOLD;
 
   return {
-    code: data.code.toUpperCase(),
+    code: code.toUpperCase(),
+    assetType: data.assetType ?? null,
     name: data.name,
     model: data.model ?? null,
     quantity: data.quantity,

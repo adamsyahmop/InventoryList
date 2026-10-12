@@ -20,6 +20,7 @@ import {
   ITEM_CONDITION_LABELS,
   ITEM_STATUS_BADGE,
   ITEM_STATUS_LABELS,
+  itemTypeLabel,
 } from "@/lib/constants";
 import { ItemStatus } from "@/generated/prisma/enums";
 import {
@@ -29,6 +30,7 @@ import {
   formatNumber,
   formatRupiah,
 } from "@/lib/format";
+import { itemDetailUrl, qrSvg, requestOrigin } from "@/lib/qr";
 import { getItem, getItemMovements, getMasterData } from "@/lib/queries";
 
 export const metadata: Metadata = { title: "Detail Barang" };
@@ -81,6 +83,11 @@ async function ItemDetail({ params }: { params: Promise<{ id: string }> }) {
   const isSold = item.status === ItemStatus.SOLD;
   const isDisposed = item.status === ItemStatus.DISPOSED;
   const releasedAt = isSold ? item.soldAt : isDisposed ? item.disposedAt : null;
+
+  // QR berisi tautan ke halaman ini (berdasarkan ID, bukan kode barang) supaya
+  // label yang sudah ditempel tetap valid walau kode/nama barang berubah.
+  const detailUrl = itemDetailUrl(await requestOrigin(), item.id);
+  const qr = await qrSvg(detailUrl);
 
   return (
     <div className="flex flex-col gap-6">
@@ -150,6 +157,9 @@ async function ItemDetail({ params }: { params: Promise<{ id: string }> }) {
           <CardBody>
             <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <DetailRow label="Kategori">{item.category?.name}</DetailRow>
+              <DetailRow label="Jenis barang">
+                {itemTypeLabel(item.assetType) ?? "—"}
+              </DetailRow>
               <DetailRow label="Merek">{item.brand?.name}</DetailRow>
               <DetailRow label="Model / tipe">{item.model}</DetailRow>
               <DetailRow label="Nomor seri">{item.serialNumber}</DetailRow>
@@ -205,6 +215,29 @@ async function ItemDetail({ params }: { params: Promise<{ id: string }> }) {
                 <span className="whitespace-pre-wrap">{item.notes}</span>
               </DetailRow>
             </dl>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Label QR"
+            description="Dicetak & ditempel ke fisik barang."
+          />
+          <CardBody className="flex flex-col items-center gap-3 text-center">
+            <div
+              className="rounded-lg bg-white p-1 ring-1 ring-neutral-200 [&>svg]:h-40 [&>svg]:w-40"
+              dangerouslySetInnerHTML={{ __html: qr }}
+            />
+            <span className="font-mono text-sm font-semibold text-neutral-800">
+              {item.code}
+            </span>
+            <ButtonLink
+              href={`/items/${item.id}/label`}
+              variant="outline"
+              size="sm"
+            >
+              Cetak label
+            </ButtonLink>
           </CardBody>
         </Card>
 

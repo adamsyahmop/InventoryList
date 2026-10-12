@@ -399,6 +399,47 @@ if ($detail) {
   HasText 'edit' $edit.Body 'Edit Barang'
 }
 
+# --- kode otomatis, jenis barang & label QR -----------------------------------
+# Kode barang kini boleh dikosongkan: server yang membentuk
+# `INV-<tahun>-<urut>-<jenis>`. Di sini semuanya diverifikasi lewat HTML (tanpa
+# membuat barang) supaya smoke tidak mengubah data seed; pencetakan label diuji
+# memakai barang pertama yang muncul di daftar.
+[Console]::WriteLine('')
+[Console]::WriteLine('=== KODE OTOMATIS, JENIS BARANG & LABEL QR ===')
+$codeField = [regex]::Match($newItem.Body, '(?s)<input[^>]*id="code"[^>]*>')
+Check 'items/new kolom kode ada' $codeField.Success $true
+Check 'items/new kolom kode tidak wajib' $codeField.Value.Contains('required') $false
+HasText 'items/new' $newItem.Body 'Kosongkan untuk dibuat otomatis'
+HasText 'items/new' $newItem.Body 'Jenis barang'
+HasText 'items/new' $newItem.Body '<option value="PC">'
+HasText 'items/new' $newItem.Body '<option value="LPT">'
+
+if ($detail) {
+  HasText 'detail' $detail.Body 'Jenis barang'
+  HasText 'detail' $detail.Body 'Label QR'
+  HasText 'detail' $detail.Body 'Cetak label'
+  HasText 'detail' $detail.Body "/items/$itemId/label"
+  # QR dibuat server-side sebagai SVG inline, jadi halaman tidak boleh menunjuk
+  # layanan gambar pihak ketiga.
+  Check 'detail QR berupa <svg>' ($detail.Body.Contains('<svg')) $true
+  Check 'detail QR tanpa layanan luar' ($detail.Body.Contains('qrserver') -or $detail.Body.Contains('chart.googleapis')) $false
+
+  $label = Hit "/items/$itemId/label" $token
+  Check 'auth GET /items/[id]/label status' $label.Code 200
+  HasText 'label' $label.Body 'Inventaris Barang'
+  Check 'label QR berupa <svg>' ($label.Body.Contains('<svg')) $true
+  HasText 'label aturan cetak' $label.Body 'print-area'
+  # SKU yang tercetak harus sama dengan yang tampil di halaman detail, dan QR
+  # menyimpan URL detail (bukan kode) supaya label tetap sah walau kode/nama
+  # barang nanti diubah.
+  # Suffix jenis hanya ada pada kode yang dibuat server; kode lama (mis.
+  # INV-2026-0009) tetap tanpa suffix, jadi keduanya harus cocok.
+  $detailCode = [regex]::Match($detail.Body, 'INV-\d{4}-\d{4}(-[A-Z]+)?').Value
+  Check 'detail memuat kode barang' ($detailCode.Length -gt 0) $true
+  HasText 'label memuat kode yang sama' $label.Body $detailCode
+  HasText 'label tautan ke detail' $label.Body "/items/$itemId"
+}
+
 # --- Sampah: soft delete & pemulihan -----------------------------------------
 # Menutup celah yang dulu membuat bug `getItem()` lolos: jalur hapus/pulihkan
 # tidak pernah diuji. Seed menyediakan INV-2026-0010 yang sudah dihapus, dan di

@@ -2,14 +2,16 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Inventory List
 
-Aplikasi pencatatan inventaris barang: kode unik, nama, merek, jenis/kategori,
-tanggal beli, harga, lokasi, supplier, garansi, kondisi, dan status — lengkap
-dengan cabang (lokasi, pembeli, pemilik), metadata pelepasan aset (dibuang /
-dijual), riwayat pergerakan barang, halaman **Sampah** (soft delete +
-pemulihan), serta ekspor CSV.
+Aplikasi pencatatan inventaris barang: kode unik (boleh dibuat otomatis dengan
+suffix jenis, mis. `INV-2026-0011-LPT`), nama, merek, jenis/kategori, tanggal
+beli, harga, lokasi, supplier, garansi, kondisi, dan status — lengkap dengan
+cabang (lokasi, pembeli, pemilik), metadata pelepasan aset (dibuang / dijual),
+riwayat pergerakan barang, halaman **Sampah** (soft delete + pemulihan),
+**label QR siap cetak per barang**, serta ekspor CSV.
 
 Stack: **Next.js 16.4.0** (Turbopack, Cache Components + Partial Prefetching) ·
-**Prisma 7.10.0** · **SQLite** (`dev.db`) · **Zod** · Tailwind CSS 4.
+**Prisma 7.10.0** · **SQLite** (`dev.db`) · **Zod** · **`qrcode`** (QR SVG
+server-side) · Tailwind CSS 4.
 
 > Halaman aplikasi berada di `src/app/(app)/`, bukan `app/page.tsx`. Proteksi
 > rute ada di `src/proxy.ts` (Proxy Next.js 16, Node.js runtime).
@@ -39,7 +41,7 @@ login sungguhan lewat POST form (password benar → 303 + cookie, password salah
 pesan error), semua halaman utama dengan cookie sesi, isi konten penting
 (termasuk angka dashboard dan nilai aset aktif vs nilai perolehan), filter
 cabang/sumber, ekspor CSV, empty state filter, dan UI 404. Total
-**157 pemeriksaan**.
+**176 pemeriksaan**.
 
 Bagian **SAMPAH** di skrip itu menguji soft delete secara end-to-end: barang
 terhapus tampil di `/items/terhapus` dan absen dari daftar aktif/CSV, tombol
@@ -48,6 +50,15 @@ Edit dan form pergerakan tidak tersedia untuk barang terhapus, lalu aksi
 tanpa JavaScript) dan diverifikasi lewat daftar aktif, empty state Sampah, serta
 baris riwayat baru. Di akhir, barang dihapus lagi supaya isi Sampah kembali
 seperti kondisi seed.
+
+Bagian **KODE OTOMATIS, JENIS BARANG & LABEL QR** memeriksa bahwa form barang
+baru **tidak** mewajibkan kode (ada hint `Kosongkan untuk dibuat otomatis` dan
+pilihan jenis `PC`/`LPT`), halaman detail menampilkan `Jenis barang` + kartu QR
+berupa `<svg` (tanpa menunjuk layanan gambar pihak ketiga), dan
+`/items/[id]/label` merender label cetak berisi `<svg`, aturan `print-area`,
+kode yang **sama** dengan halaman detail, serta tautan QR ke `/items/<id>`.
+Bagian ini sengaja tidak menulis apa pun ke database, jadi bisa dijalankan
+berulang tanpa mengubah angka dashboard.
 
 ```bash
 npm run build
@@ -127,6 +138,33 @@ sehingga riwayat pergerakan dan nilai perolehannya tetap utuh untuk audit.
   tidak punya form pergerakan di halaman detailnya, jadi statusnya tidak bisa
   "diubah diam-diam" selama berada di Sampah.
 - Semua aksi ini diuji end-to-end oleh bagian **SAMPAH** di `smoke.ps1`.
+
+## Kode barang otomatis, jenis barang & label QR
+
+- **Kode tidak lagi wajib diketik.** Kolom Kode di form barang boleh dikosongkan;
+  server yang membentuknya: `INV-<tahun>-<urut 4 digit>-<jenis>`, mis.
+  `INV-2026-0011-LPT`. Urutan dihitung global per tahun dan nomor yang sudah
+  terpakai tidak didaur ulang (`generateItemCode()` di
+  `src/lib/actions/items.ts`); `Item.code` tetap `@unique` sebagai jaring
+  pengaman terakhir.
+- **Kode lama tidak pernah diubah.** Barang hasil seed (`INV-2026-0001` dst.)
+  tetap tanpa suffix — format baru hanya berlaku untuk barang baru. Saat
+  mengedit, kode yang sudah ada dipertahankan bila kolomnya dikosongkan.
+- **Jenis barang** berbeda dari kategori: `Item.assetType` menyimpan kode pendek
+  (`PC`, `LPT`, `PRN`, `MON`, `NET`, `MOB`, `FRN`, `ELE`, `LAIN`) dengan label
+  manusiawi lewat `ITEM_TYPE_LABELS` / `itemTypeLabel()` di
+  `src/lib/constants.ts`. Kategori tetap menjawab "barang apa" dan dikelola di
+  `/master`.
+- **Label QR** ada di `/items/[id]/label`: QR SVG yang dibuat server-side dengan
+  library `qrcode` (`src/lib/qr.ts`) + kode, nama, jenis, kondisi, lokasi, dan
+  status, lengkap dengan tombol **Cetak label**
+  (`src/components/print-button.tsx`) dan aturan `@media print` (`.print-area`)
+  supaya hanya label yang tercetak.
+- QR memuat **URL** `/items/<id>` (bukan kodenya), jadi label tetap sah walau
+  kode/nama barang nanti diubah. Alamatnya diambil apa adanya dari
+  `requestOrigin()` (header request), sehingga dari HP label hanya bisa dibuka
+  bila alamat aplikasi memang dapat diakses dari jaringan itu (bukan
+  `localhost`).
 
 ## Cabang & pelepasan aset
 
