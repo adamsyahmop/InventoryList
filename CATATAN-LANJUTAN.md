@@ -2,6 +2,8 @@
 
 Terakhir diperbarui: 12 Oktober 2026 (sesi lanjutan — halaman Sampah & pemulihan barang).
 Stack: Next.js 16.4.0 (Turbopack, Cache Components aktif) + Prisma 7.10.0 + SQLite (`dev.db`).
+Repositori: https://github.com/adamsyahmop/InventoryList (branch `main`, commit awal `823b402`).
+Identitas git repo ini: `adamsyahmop` / `adamsyahmop@users.noreply.github.com` (noreply, agar email asli tidak terekspos); `.env.example` di-*unignore* lewat `!.env.example` supaya template tetap ikut ter-commit.
 
 ## Status: aplikasi JALAN dan TERVERIFIKASI ✅
 
