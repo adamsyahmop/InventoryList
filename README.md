@@ -41,7 +41,7 @@ login sungguhan lewat POST form (password benar → 303 + cookie, password salah
 pesan error), semua halaman utama dengan cookie sesi, isi konten penting
 (termasuk angka dashboard dan nilai aset aktif vs nilai perolehan), filter
 cabang/sumber/unit pengelola, ekspor CSV, empty state filter, dan UI 404. Total
-**192 pemeriksaan**.
+**197 pemeriksaan**.
 
 Bagian **SAMPAH** di skrip itu menguji soft delete secara end-to-end: barang
 terhapus tampil di `/items/terhapus` dan absen dari daftar aktif/CSV, tombol
@@ -193,6 +193,11 @@ Tiga dimensi yang sengaja dipisah:
 - **Filter** `?departmentId=` di `/items` menyaring per unit pengelola, terpisah
   dari `?categoryId=` dan `?branchId=`.
 - `ownerBranchId` kosong berarti aset milik **Kantor pusat**.
+- Kartu depan dashboard memakai **jumlah** barang (jenis & unit), bukan nilai
+  rupiah. Sebaran jumlah barang per cabang digambar sebagai donut SVG di
+  `src/components/dashboard/branch-donut.tsx` — tanpa library chart supaya tetap
+  server component dan tidak menambah dependency. Nilai aset tetap tersedia di
+  tabel per cabang (baris **Total**) dan kartu "Pelepasan aset".
 - **Filter** `?branchId=` di `/items` menyaring berdasarkan cabang **lokasi**
   (barang ada di mana), sedangkan kartu "Nilai aset aktif per cabang" di
   dashboard menyaring berdasarkan **kepemilikan** (aset ini milik siapa).

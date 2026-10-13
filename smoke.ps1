@@ -333,7 +333,12 @@ Check 'api/export diawali Kode,Nama' $csv.Body.StartsWith('Kode,Nama') $true
 Check 'api/export tanpa BOM mentah' $csv.Body.Contains('INV-2026-0001') $true
 
 HasText 'dashboard' $dash.Body 'Jenis barang'
-HasText 'dashboard' $dash.Body 'Nilai aset aktif'
+# Kartu depan kini memakai JUMLAH aset aktif, bukan nilai rupiahnya.
+HasText 'dashboard' $dash.Body 'Barang aktif'
+HasText 'dashboard' $dash.Body '31 unit masih dimiliki'
+HasText 'dashboard' $dash.Body 'Barang per cabang'
+HasText 'dashboard' $dash.Body 'stroke-dasharray'
+HasText 'dashboard' $dash.Body 'jenis barang'
 HasText 'dashboard' $dash.Body 'Barang terbaru'
 HasText 'dashboard' $dash.Body 'Garansi segera habis'
 HasText 'dashboard' $dash.Body 'INV-2026-0008'
@@ -343,6 +348,8 @@ HasText 'dashboard' $dash.Body 'Rp'
 # nilai aset aktif 100.350.000 (bukan 33.850.000 yang hanya menjumlah harga satuan).
 HasText 'dashboard' $dash.Body '112.600.000'
 HasText 'dashboard' $dash.Body '100.350.000'
+# Total nilai aset aktif kini tampil sebagai baris "Total" di tabel per cabang.
+HasText 'dashboard' $dash.Body '<tfoot'
 HasText 'dashboard' $dash.Body '1.850.000'
 HasText 'dashboard' $dash.Body '10.400.000'
 HasText 'dashboard' $dash.Body '3.500.000'

@@ -249,6 +249,10 @@ export async function getDashboardStats() {
   const soldRows = valueRows.filter((row) => row.status === "SOLD");
 
   const activeValue = sumValue(activeRows);
+  // Dashboard menampilkan JUMLAH aset aktif di kartu depan (bukan nilainya).
+  // `activeItems` = jumlah jenis barang, `activeQuantity` = total unitnya.
+  const activeItems = activeRows.length;
+  const activeQuantity = activeRows.reduce((sum, row) => sum + row.quantity, 0);
   const disposedValue = sumValue(disposedRows);
   const soldValue = sumValue(soldRows);
   // Uang yang benar-benar kembali dari penjualan (bukan harga beli).
@@ -334,6 +338,8 @@ export async function getDashboardStats() {
     totalQuantity: totalQuantity._sum.quantity ?? 0,
     totalValue,
     activeValue,
+    activeItems,
+    activeQuantity,
     disposedValue,
     soldValue,
     soldProceeds,

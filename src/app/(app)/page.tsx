@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { connection } from "next/server";
+import { BranchDonut } from "@/components/dashboard/branch-donut";
 import { ButtonLink } from "@/components/ui/button";
 import {
   Badge,
@@ -25,16 +26,31 @@ function StatCard({
   label,
   value,
   hint,
+  tone,
 }: {
   label: string;
   value: string;
   hint?: string;
+  /** Warna aksen kartu (nilai hex, dipakai inline agar aman dari purge Tailwind). */
+  tone: string;
 }) {
   return (
-    <Card className="p-4">
-      <p className="text-xs font-medium tracking-wide text-neutral-500 uppercase">
-        {label}
-      </p>
+    <Card className="relative overflow-hidden p-4">
+      <span
+        aria-hidden
+        className="absolute inset-y-0 left-0 w-1"
+        style={{ backgroundColor: tone }}
+      />
+      <div className="flex items-center gap-2">
+        <span
+          aria-hidden
+          className="h-2 w-2 shrink-0 rounded-full"
+          style={{ backgroundColor: tone }}
+        />
+        <p className="text-xs font-medium tracking-wide text-neutral-500 uppercase">
+          {label}
+        </p>
+      </div>
       <p className="mt-1.5 text-2xl font-semibold tracking-tight text-neutral-900">
         {value}
       </p>
@@ -107,21 +123,25 @@ async function DashboardContent() {
           label="Jenis barang"
           value={formatNumber(stats.totalItems)}
           hint={`${formatNumber(stats.totalQuantity)} unit total`}
+          tone="#6366f1"
         />
         <StatCard
-          label="Nilai aset aktif"
-          value={formatRupiah(stats.activeValue)}
-          hint={`Dari ${formatRupiah(stats.totalValue)} nilai perolehan`}
+          label="Barang aktif"
+          value={formatNumber(stats.activeItems)}
+          hint={`${formatNumber(stats.activeQuantity)} unit masih dimiliki`}
+          tone="#10b981"
         />
         <StatCard
           label="Kategori terpakai"
           value={formatNumber(stats.usedCategoryCount)}
           hint={`dari ${formatNumber(stats.totalCategories)} kategori terdaftar`}
+          tone="#0ea5e9"
         />
         <StatCard
           label="Perlu perhatian"
           value={formatNumber(stats.needsAttentionCount)}
           hint={stats.attentionHint || "Tidak ada yang mendesak"}
+          tone="#f59e0b"
         />
       </div>
 
@@ -228,6 +248,16 @@ async function DashboardContent() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
+        <Card>
+          <CardHeader
+            title="Barang per cabang"
+            description="Jumlah jenis barang aktif menurut pemilik aset."
+          />
+          <CardBody>
+            <BranchDonut rows={stats.branchBreakdown} />
+          </CardBody>
+        </Card>
+
         <Card className="lg:col-span-2">
           <CardHeader
             title="Nilai aset aktif per cabang"
@@ -275,11 +305,34 @@ async function DashboardContent() {
                     );
                   })}
                 </tbody>
+                <tfoot className="border-t border-neutral-200 bg-neutral-50/70">
+                  <tr>
+                    <td className="px-4 py-2 font-medium text-neutral-700">
+                      Total
+                    </td>
+                    <td className="px-4 py-2 text-right font-medium text-neutral-700">
+                      {formatNumber(
+                        stats.branchBreakdown.reduce(
+                          (sum, row) => sum + row.count,
+                          0,
+                        ),
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-right font-medium text-neutral-700">
+                      {formatRupiah(stats.activeValue)}
+                    </td>
+                    <td className="px-4 py-2 text-right text-xs font-medium text-neutral-500">
+                      100%
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
             )}
           </CardBody>
         </Card>
+      </div>
 
+      <div className="grid gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader
             title="Pelepasan aset"
@@ -316,9 +369,7 @@ async function DashboardContent() {
             </p>
           </CardBody>
         </Card>
-      </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader
             title="Barang terbaru"
