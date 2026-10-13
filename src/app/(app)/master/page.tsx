@@ -10,11 +10,13 @@ import {
   deleteBranchAction,
   deleteBrandAction,
   deleteCategoryAction,
+  deleteDepartmentAction,
   deleteLocationAction,
   deleteSupplierAction,
   saveBranchAction,
   saveBrandAction,
   saveCategoryAction,
+  saveDepartmentAction,
   saveLocationAction,
   saveSupplierAction,
 } from "@/lib/actions/master";
@@ -25,6 +27,12 @@ export const metadata: Metadata = { title: "Data Master" };
 const BRANCH_FIELDS: MasterFieldDef[] = [
   { name: "name", label: "Nama cabang", required: true, placeholder: "Cabang Bandung" },
   { name: "code", label: "Kode cabang", required: true, placeholder: "BDG" },
+  { name: "notes", label: "Catatan", type: "textarea" },
+];
+
+const DEPARTMENT_FIELDS: MasterFieldDef[] = [
+  { name: "name", label: "Nama unit", required: true, placeholder: "IT" },
+  { name: "code", label: "Kode unit", required: true, placeholder: "IT" },
   { name: "notes", label: "Catatan", type: "textarea" },
 ];
 
@@ -69,7 +77,7 @@ function joinMeta(...parts: Array<string | null | undefined>) {
 function MasterSkeleton() {
   return (
     <div className="flex flex-col gap-4">
-      {[0, 1, 2, 3, 4].map((index) => (
+      {[0, 1, 2, 3, 4, 5].map((index) => (
         <Card key={index} className="h-56 animate-pulse bg-neutral-100" />
       ))}
     </div>
@@ -77,7 +85,7 @@ function MasterSkeleton() {
 }
 
 async function MasterData() {
-  const { categories, brands, locations, suppliers, branches } =
+  const { categories, departments, brands, locations, suppliers, branches } =
     await getMasterData();
 
   const branchNames = new Map(branches.map((branch) => [branch.id, branch.name]));
@@ -107,6 +115,17 @@ async function MasterData() {
       name: branch.name,
       code: branch.code,
       notes: branch.notes ?? "",
+    },
+  }));
+
+  const departmentRows: MasterRow[] = departments.map((department) => ({
+    id: department.id,
+    label: department.name,
+    meta: joinMeta(department.code, department.notes),
+    values: {
+      name: department.name,
+      code: department.code,
+      notes: department.notes ?? "",
     },
   }));
 
@@ -174,6 +193,15 @@ async function MasterData() {
         emptyText="Belum ada cabang."
       />
       <MasterManager
+        title="Unit pengelola"
+        description="Unit yang memakai & merawat barang (mis. IT, GA). Dimensi terpisah dari kategori dan cabang."
+        fields={DEPARTMENT_FIELDS}
+        rows={departmentRows}
+        saveAction={saveDepartmentAction}
+        deleteAction={deleteDepartmentAction}
+        emptyText="Belum ada unit pengelola."
+      />
+      <MasterManager
         title="Kategori"
         description="Pengelompokan jenis barang."
         fields={CATEGORY_FIELDS}
@@ -218,7 +246,7 @@ export default function MasterPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Data Master"
-        description="Kelola cabang, kategori, merek, lokasi, dan supplier yang dipakai pada form barang."
+        description="Kelola unit pengelola, cabang, kategori, merek, lokasi, dan supplier yang dipakai pada form barang."
       />
       <Suspense fallback={<MasterSkeleton />}>
         <MasterData />

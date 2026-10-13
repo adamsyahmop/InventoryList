@@ -24,6 +24,7 @@ async function EditItemForm({ params }: { params: Promise<{ id: string }> }) {
     brandId: item.brandId ?? "",
     model: item.model ?? "",
     categoryId: item.categoryId ?? "",
+    departmentId: item.departmentId ?? "",
     quantity: String(item.quantity),
     unit: item.unit,
     purchaseDate: toDateInputValue(item.purchaseDate),

@@ -9,6 +9,7 @@ import {
   branchSchema,
   brandSchema,
   categorySchema,
+  departmentSchema,
   locationSchema,
   supplierSchema,
   toFieldErrors,
@@ -78,6 +79,65 @@ export async function deleteBranchAction(
 
   invalidateMasterCaches();
   return { ok: true, message: "Cabang dihapus." };
+}
+
+export async function saveDepartmentAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  await requireAuth();
+
+  const id = String(formData.get("id") ?? "").trim();
+  const parsed = departmentSchema.safeParse(formToObject(formData));
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: "Periksa kembali data unit pengelola.",
+      fieldErrors: toFieldErrors(parsed.error),
+    };
+  }
+
+  const data = parsed.data;
+  const payload = {
+    name: data.name,
+    code: data.code.toUpperCase(),
+    notes: data.notes ?? null,
+  };
+
+  try {
+    if (id) {
+      await prisma.department.update({ where: { id }, data: payload });
+    } else {
+      await prisma.department.create({ data: payload });
+    }
+  } catch (error) {
+    return { ok: false, message: describeError(error) };
+  }
+
+  invalidateMasterCaches();
+  return {
+    ok: true,
+    message: id ? "Unit pengelola diperbarui." : "Unit pengelola ditambahkan.",
+  };
+}
+
+export async function deleteDepartmentAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  await requireAuth();
+
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return { ok: false, message: "ID unit pengelola tidak ditemukan." };
+
+  try {
+    await prisma.department.delete({ where: { id } });
+  } catch (error) {
+    return { ok: false, message: describeError(error) };
+  }
+
+  invalidateMasterCaches();
+  return { ok: true, message: "Unit pengelola dihapus." };
 }
 
 export async function saveCategoryAction(

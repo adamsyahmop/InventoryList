@@ -30,6 +30,7 @@ export type ItemFormValues = {
   brandId: string;
   model: string;
   categoryId: string;
+  departmentId: string;
   quantity: string;
   unit: string;
   purchaseDate: string;
@@ -61,6 +62,7 @@ export const EMPTY_ITEM_FORM: ItemFormValues = {
   brandId: "",
   model: "",
   categoryId: "",
+  departmentId: "",
   quantity: "1",
   unit: "pcs",
   purchaseDate: "",
@@ -88,6 +90,7 @@ type MasterOption = { id: string; name: string };
 
 export type MasterOptions = {
   categories: MasterOption[];
+  departments: MasterOption[];
   brands: MasterOption[];
   locations: MasterOption[];
   suppliers: MasterOption[];
@@ -394,6 +397,27 @@ export function ItemForm({
             <Select id="locationId" name="locationId" defaultValue={values.locationId}>
               <option value="">— Belum ditempatkan —</option>
               {master.locations.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field
+            label="Unit pengelola"
+            htmlFor="departmentId"
+            error={errorOf("departmentId")}
+            hint="Unit yang memakai & merawat barang (mis. IT / GA)."
+          >
+            <Select
+              id="departmentId"
+              name="departmentId"
+              defaultValue={values.departmentId}
+              invalid={Boolean(errorOf("departmentId"))}
+            >
+              <option value="">— Tanpa unit —</option>
+              {master.departments.map((option) => (
                 <option key={option.id} value={option.id}>
                   {option.name}
                 </option>

@@ -25,6 +25,7 @@ export const CACHE_TAGS = {
  */
 const ITEM_INCLUDE = {
   category: true,
+  department: true,
   brand: true,
   supplier: true,
   sourceBranch: true,
@@ -43,6 +44,8 @@ export type ItemFilters = {
   status?: ItemStatus | "";
   condition?: ItemCondition | "";
   categoryId?: string;
+  /** Unit pengelola (mis. IT / GA), dimensi bebas dari kategori. */
+  departmentId?: string;
   locationId?: string;
   /** Filter cabang memakai cabang LOKASI (barang ada di mana). */
   branchId?: string;
@@ -81,6 +84,7 @@ export async function listItems(filters: ItemFilters): Promise<ItemListResult> {
     ...(filters.status ? { status: filters.status } : {}),
     ...(filters.condition ? { condition: filters.condition } : {}),
     ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
+    ...(filters.departmentId ? { departmentId: filters.departmentId } : {}),
     ...(filters.locationId ? { locationId: filters.locationId } : {}),
     ...(filters.branchId ? { location: { branchId: filters.branchId } } : {}),
     ...(filters.acquisitionSource
@@ -167,16 +171,17 @@ export async function getMasterData() {
   cacheTag(CACHE_TAGS.master);
   cacheLife("minutes");
 
-  const [categories, brands, locations, suppliers, branches] =
+  const [categories, departments, brands, locations, suppliers, branches] =
     await prisma.$transaction([
       prisma.category.findMany({ orderBy: { name: "asc" } }),
+      prisma.department.findMany({ orderBy: { name: "asc" } }),
       prisma.brand.findMany({ orderBy: { name: "asc" } }),
       prisma.location.findMany({ orderBy: { name: "asc" } }),
       prisma.supplier.findMany({ orderBy: { name: "asc" } }),
       prisma.branch.findMany({ orderBy: { name: "asc" } }),
     ]);
 
-  return { categories, brands, locations, suppliers, branches };
+  return { categories, departments, brands, locations, suppliers, branches };
 }
 
 export async function getDashboardStats() {

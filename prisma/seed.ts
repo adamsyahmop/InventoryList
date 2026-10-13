@@ -39,6 +39,8 @@ type SeedItem = {
   serialNumber?: string;
   notes?: string;
   category: string;
+  /** Nama unit pengelola (mis. `IT`, `GA`); lihat `DEPARTMENTS`. */
+  department?: string;
   brand?: string;
   location?: string;
   supplier?: string;
@@ -69,6 +71,11 @@ const CATEGORIES = [
   { name: "Elektronik", code: "ELK", description: "Perangkat komputer dan elektronik." },
   { name: "Furnitur", code: "FRN", description: "Meja, kursi, dan lemari." },
   { name: "Peralatan Kantor", code: "PKT", description: "Alat tulis dan perlengkapan kantor." },
+];
+
+const DEPARTMENTS = [
+  { code: "IT", name: "IT", notes: "Perangkat komputer, jaringan, dan sistem informasi." },
+  { code: "GA", name: "GA", notes: "General Affairs: furnitur, perlengkapan, dan sarana kantor." },
 ];
 
 const BRANDS = [
@@ -125,6 +132,7 @@ const ITEMS: SeedItem[] = [
     assignedTo: "Divisi IT",
     serialNumber: "DL5440-001",
     category: "Elektronik",
+    department: "IT",
     brand: "Dell",
     location: "Ruang Server",
     supplier: "PT Sumber Komputer",
@@ -142,6 +150,7 @@ const ITEMS: SeedItem[] = [
     condition: "GOOD",
     status: "AVAILABLE",
     category: "Elektronik",
+    department: "IT",
     brand: "Dell",
     location: "Gudang A",
     supplier: "PT Sumber Komputer",
@@ -159,6 +168,7 @@ const ITEMS: SeedItem[] = [
     condition: "NEW",
     status: "AVAILABLE",
     category: "Elektronik",
+    department: "IT",
     brand: "Asus",
     location: "Gudang A",
     supplier: "PT Sumber Komputer",
@@ -176,6 +186,7 @@ const ITEMS: SeedItem[] = [
     status: "BORROWED",
     assignedTo: "Rani",
     category: "Elektronik",
+    department: "IT",
     brand: "Logitech",
     location: "Ruang Meeting",
     supplier: "PT Sumber Komputer",
@@ -192,6 +203,7 @@ const ITEMS: SeedItem[] = [
     condition: "FAIR",
     status: "AVAILABLE",
     category: "Furnitur",
+    department: "GA",
     brand: "IKEA",
     location: "Gudang Bandung",
     supplier: "CV Mitra Furnitur",
@@ -211,6 +223,7 @@ const ITEMS: SeedItem[] = [
     status: "MAINTENANCE",
     notes: "Dua unit hidroliknya bocor.",
     category: "Furnitur",
+    department: "GA",
     brand: "IKEA",
     location: "Gudang Bandung",
     supplier: "CV Mitra Furnitur",
@@ -231,6 +244,7 @@ const ITEMS: SeedItem[] = [
     condition: "FAIR",
     status: "AVAILABLE",
     category: "Elektronik",
+    department: "IT",
     location: "Front Office Surabaya",
     acquisitionSource: "HEAD_OFFICE",
     ownerBranch: "Cabang Surabaya",
@@ -247,6 +261,7 @@ const ITEMS: SeedItem[] = [
     status: "DISPOSED",
     notes: "Sudah tidak ekonomis untuk diperbaiki.",
     category: "Elektronik",
+    department: "IT",
     brand: "HP",
     location: "Gudang A",
     acquisitionSource: "HEAD_OFFICE",
@@ -266,6 +281,7 @@ const ITEMS: SeedItem[] = [
     status: "SOLD",
     notes: "Dijual borongan setelah penggantian unit.",
     category: "Elektronik",
+    department: "IT",
     brand: "HP",
     location: "Gudang A",
     supplier: "PT Sumber Komputer",
@@ -289,6 +305,7 @@ const ITEMS: SeedItem[] = [
     status: "DISPOSED",
     notes: "Dihapus dari daftar aktif setelah dibuang.",
     category: "Peralatan Kantor",
+    department: "GA",
     location: "Gudang A",
     acquisitionSource: "HEAD_OFFICE",
     disposedAt: iso(-20),
@@ -309,6 +326,13 @@ async function main() {
     await prisma.category.upsert({
       where: { name: data.name },
       update: { code: data.code, description: data.description },
+      create: data,
+    });
+  }
+  for (const data of DEPARTMENTS) {
+    await prisma.department.upsert({
+      where: { code: data.code },
+      update: { name: data.name, notes: data.notes },
       create: data,
     });
   }
@@ -347,22 +371,28 @@ async function main() {
     });
   }
 
-  const [categories, brands, locations, suppliers] = await Promise.all([
-    prisma.category.findMany(),
-    prisma.brand.findMany(),
-    prisma.location.findMany(),
-    prisma.supplier.findMany(),
-  ]);
+  const [categories, departments, brands, locations, suppliers] =
+    await Promise.all([
+      prisma.category.findMany(),
+      prisma.department.findMany(),
+      prisma.brand.findMany(),
+      prisma.location.findMany(),
+      prisma.supplier.findMany(),
+    ]);
   const byName = <T extends { name: string }>(rows: T[]) =>
     new Map(rows.map((row) => [row.name, row] as const));
 
   const categoryMap = byName(categories);
+  const departmentMap = byName(departments);
   const brandMap = byName(brands);
   const locationMap = byName(locations);
   const supplierMap = byName(suppliers);
 
   for (const item of ITEMS) {
     const category = categoryMap.get(item.category);
+    const department = item.department
+      ? departmentMap.get(item.department)
+      : undefined;
     const brand = item.brand ? brandMap.get(item.brand) : undefined;
     const location = item.location ? locationMap.get(item.location) : undefined;
     const supplier = item.supplier ? supplierMap.get(item.supplier) : undefined;
@@ -390,6 +420,7 @@ async function main() {
       serialNumber: item.serialNumber ?? null,
       notes: item.notes ?? null,
       categoryId: category?.id ?? null,
+      departmentId: department?.id ?? null,
       brandId: brand?.id ?? null,
       locationId: location?.id ?? null,
       supplierId: supplier?.id ?? null,
@@ -416,6 +447,7 @@ async function main() {
         item.notes,
         item.disposalReason,
         category?.name,
+        department?.name,
         brand?.name,
         location?.name,
         location?.branchId ? branchById.get(location.branchId)?.name : undefined,
@@ -492,9 +524,9 @@ async function main() {
   ]);
   console.log(
     `Seed selesai: ${branches.length} cabang, ${categories.length} kategori, ` +
-      `${brands.length} merek, ${locations.length} lokasi, ` +
-      `${suppliers.length} supplier, ${itemCount} barang, ` +
-      `${movementCount} pergerakan.`,
+      `${departments.length} unit pengelola, ${brands.length} merek, ` +
+      `${locations.length} lokasi, ${suppliers.length} supplier, ` +
+      `${itemCount} barang, ${movementCount} pergerakan.`,
   );
 }
 

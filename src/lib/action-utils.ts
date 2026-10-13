@@ -52,12 +52,25 @@ export function describeError(error: unknown): string {
  * "bandung" langsung menemukan barangnya, bukan hanya lokasinya.
  */
 export async function buildItemSearchKey(data: ItemInput): Promise<string> {
-  const [category, brand, location, supplier, sourceBranch, ownerBranch] =
-    await Promise.all([
+  const [
+    category,
+    department,
+    brand,
+    location,
+    supplier,
+    sourceBranch,
+    ownerBranch,
+  ] = await Promise.all([
       data.categoryId
         ? prisma.category.findUnique({
             where: { id: data.categoryId },
             select: { name: true },
+          })
+        : null,
+      data.departmentId
+        ? prisma.department.findUnique({
+            where: { id: data.departmentId },
+            select: { name: true, code: true },
           })
         : null,
       data.brandId
@@ -105,6 +118,8 @@ export async function buildItemSearchKey(data: ItemInput): Promise<string> {
     data.notes,
     data.disposalReason,
     category?.name,
+    department?.name,
+    department?.code,
     brand?.name,
     location?.name,
     location?.branch?.name,
@@ -144,6 +159,7 @@ export function toItemWriteData(
     photoUrl: data.photoUrl ?? null,
     notes: data.notes ?? null,
     categoryId: data.categoryId ?? null,
+    departmentId: data.departmentId ?? null,
     brandId: data.brandId ?? null,
     locationId: data.locationId ?? null,
     supplierId: data.supplierId ?? null,

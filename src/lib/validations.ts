@@ -76,6 +76,8 @@ export const itemSchema = z.object({
   brandId: optionalId,
   model: optionalString(150),
   categoryId: optionalId,
+  // Unit pengelola (mis. IT / GA): dimensi terpisah dari kategori & jenis aset.
+  departmentId: optionalId,
   quantity: nonNegativeInt("Jumlah").min(1, "Jumlah minimal 1"),
   unit: requiredString("Satuan", 30),
   purchaseDate: optionalDate,
@@ -139,6 +141,14 @@ export const brandSchema = namedSchema("Nama merek").extend({
 
 export const branchSchema = namedSchema("Nama cabang").extend({
   code: requiredString("Kode cabang", 20).regex(
+    /^[A-Za-z0-9][A-Za-z0-9._/-]*$/,
+    "Kode hanya boleh huruf, angka, dan karakter . _ / -",
+  ),
+  notes: optionalString(500),
+});
+
+export const departmentSchema = namedSchema("Nama unit").extend({
+  code: requiredString("Kode unit", 20).regex(
     /^[A-Za-z0-9][A-Za-z0-9._/-]*$/,
     "Kode hanya boleh huruf, angka, dan karakter . _ / -",
   ),

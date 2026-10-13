@@ -20,6 +20,7 @@ export type ItemFilterValues = {
   status: string;
   condition: string;
   categoryId: string;
+  departmentId: string;
   locationId: string;
   branchId: string;
   acquisitionSource: string;
@@ -48,12 +49,14 @@ function buildHref(values: ItemFilterValues): string {
 export function ItemsToolbar({
   initial,
   categories,
+  departments,
   locations,
   branches,
   total,
 }: {
   initial: ItemFilterValues;
   categories: Option[];
+  departments: Option[];
   locations: Option[];
   branches: Option[];
   total: number;
@@ -91,6 +94,7 @@ export function ItemsToolbar({
       values.status ||
       values.condition ||
       values.categoryId ||
+      values.departmentId ||
       values.locationId ||
       values.branchId ||
       values.acquisitionSource,
@@ -155,6 +159,23 @@ export function ItemsToolbar({
             {categories.map((category) => (
               <option key={category.id} value={category.id}>
                 {category.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="filter-department">Unit pengelola</Label>
+          <Select
+            id="filter-department"
+            value={values.departmentId}
+            onChange={(event) => update({ departmentId: event.target.value })}
+            className="w-40"
+          >
+            <option value="">Semua</option>
+            {departments.map((department) => (
+              <option key={department.id} value={department.id}>
+                {department.name}
               </option>
             ))}
           </Select>
@@ -238,6 +259,7 @@ export function ItemsToolbar({
                 status: "",
                 condition: "",
                 categoryId: "",
+                departmentId: "",
                 locationId: "",
                 branchId: "",
                 acquisitionSource: "",

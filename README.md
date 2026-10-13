@@ -40,8 +40,8 @@ Variabel lingkungan yang dipakai (`src/lib/session.ts`):
 login sungguhan lewat POST form (password benar → 303 + cookie, password salah →
 pesan error), semua halaman utama dengan cookie sesi, isi konten penting
 (termasuk angka dashboard dan nilai aset aktif vs nilai perolehan), filter
-cabang/sumber, ekspor CSV, empty state filter, dan UI 404. Total
-**180 pemeriksaan**.
+cabang/sumber/unit pengelola, ekspor CSV, empty state filter, dan UI 404. Total
+**192 pemeriksaan**.
 
 Bagian **SAMPAH** di skrip itu menguji soft delete secara end-to-end: barang
 terhapus tampil di `/items/terhapus` dan absen dari daftar aktif/CSV, tombol
@@ -113,9 +113,9 @@ konstanta `$secret` di `smoke.ps1` **harus sama** dengan `SESSION_SECRET` di
   sebagai bahan uji halaman Sampah. Karena ter-soft-delete, angka dashboard dan
   ekspor CSV **tidak** terpengaruh.
 - Kolom `Item.searchKey` menyimpan versi lowercase dari kode, nama, merek,
-  lokasi, cabang (lokasi/pembeli/pemilik), supplier, alasan pembuangan, dan
-  catatan. Pencarian memakai kolom ini supaya case-insensitive dan berperilaku
-  sama di SQLite maupun PostgreSQL.
+  lokasi, cabang (lokasi/pembeli/pemilik), unit pengelola, supplier, alasan
+  pembuangan, dan catatan. Pencarian memakai kolom ini supaya case-insensitive
+  dan berperilaku sama di SQLite maupun PostgreSQL.
 
 ## Sampah (soft delete & pemulihan)
 
@@ -175,11 +175,23 @@ Tiga dimensi yang sengaja dipisah:
 | Dimensi | Pertanyaan | Kolom |
 | --- | --- | --- |
 | Kategori | barang **apa** | `Item.categoryId` |
+| Unit pengelola | barang **dikelola unit apa** | `Item.departmentId` |
 | Lokasi | barang **di mana** | `Item.locationId` (+ `Location.branchId`) |
 | Perolehan / kepemilikan | **dibeli siapa / milik siapa** | `Item.acquisitionSource`, `Item.sourceBranchId`, `Item.ownerBranchId` |
 
-- `Branch` (kode unik, mis. `BDG`) dikelola di `/master` bersama kategori,
-  merek, lokasi, dan supplier. Lokasi boleh ditautkan ke satu cabang.
+- `Branch` (kode unik, mis. `BDG`) dikelola di `/master` bersama unit pengelola,
+  kategori, merek, lokasi, dan supplier. Lokasi boleh ditautkan ke satu cabang.
+- `Department` (label UI **Unit pengelola**, mis. `IT` / `GA`) menjawab "siapa
+  yang memakai & merawat barang ini sehari-hari" — sengaja dipisah dari
+  kategori (barang apa), `assetType` (wujud/akhiran kode), dan lokasi (di mana).
+  Satu unit bisa mengelola banyak jenis barang, dan relasinya `onDelete:
+  SetNull` supaya menghapus unit tidak ikut menghapus barangnya.
+- Berpindah unit **tidak mengubah kode** yang sudah dicetak di label fisik
+  (`generateItemCode()` tidak melihat `departmentId`). Nama & kode unit ikut
+  masuk `Item.searchKey`, jadi mengetik `IT` di pencarian langsung menemukan
+  barangnya.
+- **Filter** `?departmentId=` di `/items` menyaring per unit pengelola, terpisah
+  dari `?categoryId=` dan `?branchId=`.
 - `ownerBranchId` kosong berarti aset milik **Kantor pusat**.
 - **Filter** `?branchId=` di `/items` menyaring berdasarkan cabang **lokasi**
   (barang ada di mana), sedangkan kartu "Nilai aset aktif per cabang" di
@@ -192,9 +204,9 @@ Tiga dimensi yang sengaja dipisah:
 - Server yang menyelaraskan metadata pelepasan: `toItemWriteData()` di
   `src/lib/action-utils.ts` membersihkan `disposedAt` / `disposalReason` bila
   status bukan `DISPOSED`, dan `soldAt` / `soldPrice` bila status bukan `SOLD`.
-- Ekspor CSV (`/api/export`) memuat kolom tambahan: `Cabang Lokasi`,
-  `Sumber Perolehan`, `Cabang Pembeli`, `Pemilik Aset`, `Tanggal Dibuang`,
-  `Alasan Dibuang`, `Tanggal Jual`, `Harga Jual`.
+- Ekspor CSV (`/api/export`) memuat kolom tambahan: `Unit Pengelola`,
+  `Cabang Lokasi`, `Sumber Perolehan`, `Cabang Pembeli`, `Pemilik Aset`,
+  `Tanggal Dibuang`, `Alasan Dibuang`, `Tanggal Jual`, `Harga Jual`.
 
 ## Getting Started
 

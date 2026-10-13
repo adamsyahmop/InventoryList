@@ -6,6 +6,7 @@ const COLUMNS = [
   "Kode",
   "Nama",
   "Kategori",
+  "Unit Pengelola",
   "Merek",
   "Model",
   "Jumlah",
@@ -57,6 +58,7 @@ export async function GET() {
     where: { deletedAt: null },
     include: {
       category: true,
+      department: true,
       brand: true,
       supplier: true,
       sourceBranch: true,
@@ -74,6 +76,7 @@ export async function GET() {
         item.code,
         item.name,
         item.category?.name,
+        item.department ? `${item.department.name} (${item.department.code})` : null,
         item.brand?.name,
         item.model,
         item.quantity,

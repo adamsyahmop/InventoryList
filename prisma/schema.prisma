@@ -62,6 +62,28 @@ model Branch {
   @@map("branches")
 }
 
+/// Unit pengelola / departemen (master data)
+///
+/// Menjawab "siapa yang memakai & mengurus barang ini sehari-hari" (mis. IT,
+/// GA). Sengaja dipisah dari `Category` (barang APA), `assetType` (wujud
+/// fisik/akhiran kode), `Location` (barang DI MANA), dan `Branch`
+/// (kepemilikan). Satu unit bisa mengelola banyak jenis barang, dan satu
+/// barang bisa berpindah unit TANPA mengubah kode yang sudah ditempel di fisik
+/// barang.
+model Department {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String   @unique
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items Item[]
+
+  @@index([name])
+  @@map("departments")
+}
+
 /// Kategori barang (master data)
 model Category {
   id          String   @id @default(cuid())
@@ -172,6 +194,11 @@ model Item {
   supplierId String?
   supplier   Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
 
+  /// Unit pengelola (mis. IT / GA). Dimensi terpisah dari jenis aset & lokasi:
+  /// barang bisa berpindah unit tanpa mengubah kode yang sudah dicetak.
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
   /// Siapa yang membeli/membiayai barang ini.
   acquisitionSource AcquisitionSource @default(HEAD_OFFICE)
   /// Cabang pembeli; hanya diisi bila `acquisitionSource` = BRANCH.
@@ -201,6 +228,7 @@ model Item {
   @@index([searchKey])
   @@index([status])
   @@index([categoryId])
+  @@index([departmentId])
   @@index([locationId])
   @@index([sourceBranchId])
   @@index([ownerBranchId])

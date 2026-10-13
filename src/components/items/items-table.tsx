@@ -25,12 +25,13 @@ export function ItemsTable({ items }: { items: ItemWithRelations[] }) {
 
   return (
     <div className="overflow-x-auto rounded-xl border border-neutral-200 bg-white shadow-sm">
-      <table className="w-full min-w-[66rem] text-sm">
+      <table className="w-full min-w-[72rem] text-sm">
         <thead className="border-b border-neutral-200 bg-neutral-50 text-left text-xs text-neutral-500 uppercase">
           <tr>
             <th className="px-4 py-2.5 font-medium">Kode</th>
             <th className="px-4 py-2.5 font-medium">Nama barang</th>
             <th className="px-4 py-2.5 font-medium">Kategori</th>
+            <th className="px-4 py-2.5 font-medium">Unit pengelola</th>
             <th className="px-4 py-2.5 font-medium">Lokasi / cabang</th>
             <th className="px-4 py-2.5 font-medium">Sumber</th>
             <th className="px-4 py-2.5 font-medium">Tgl beli</th>
@@ -60,6 +61,14 @@ export function ItemsTable({ items }: { items: ItemWithRelations[] }) {
               </td>
               <td className="px-4 py-2.5 text-neutral-600">
                 {item.category?.name ?? "—"}
+              </td>
+              <td className="px-4 py-2.5 text-neutral-600">
+                {item.department?.name ?? "—"}
+                {item.department ? (
+                  <p className="mt-0.5 text-xs text-neutral-400">
+                    {item.department.code}
+                  </p>
+                ) : null}
               </td>
               <td className="px-4 py-2.5 text-neutral-600">
                 {item.location?.name ?? "—"}

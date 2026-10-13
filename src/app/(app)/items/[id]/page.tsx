@@ -157,6 +157,11 @@ async function ItemDetail({ params }: { params: Promise<{ id: string }> }) {
           <CardBody>
             <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <DetailRow label="Kategori">{item.category?.name}</DetailRow>
+              <DetailRow label="Unit pengelola">
+                {item.department
+                  ? `${item.department.name} (${item.department.code})`
+                  : null}
+              </DetailRow>
               <DetailRow label="Jenis barang">
                 {itemTypeLabel(item.assetType) ?? "—"}
               </DetailRow>

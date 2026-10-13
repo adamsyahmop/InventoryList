@@ -36,6 +36,7 @@ function parseSearchParams(params: SearchParams) {
     status: STATUS_VALUES.includes(statusRaw) ? statusRaw : "",
     condition: CONDITION_VALUES.includes(conditionRaw) ? conditionRaw : "",
     categoryId: firstParam(params.categoryId) ?? "",
+    departmentId: firstParam(params.departmentId) ?? "",
     locationId: firstParam(params.locationId) ?? "",
     branchId: firstParam(params.branchId) ?? "",
     acquisitionSource: SOURCE_VALUES.includes(sourceRaw) ? sourceRaw : "",
@@ -80,6 +81,7 @@ async function ItemsSection({
       status: (filters.status || undefined) as ItemStatus | undefined,
       condition: (filters.condition || undefined) as ItemCondition | undefined,
       categoryId: filters.categoryId || undefined,
+      departmentId: filters.departmentId || undefined,
       locationId: filters.locationId || undefined,
       branchId: filters.branchId || undefined,
       acquisitionSource: (filters.acquisitionSource || undefined) as
@@ -96,6 +98,7 @@ async function ItemsSection({
       <ItemsToolbar
         initial={filters}
         categories={master.categories}
+        departments={master.departments}
         locations={master.locations}
         branches={master.branches}
         total={result.total}

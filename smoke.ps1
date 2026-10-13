@@ -238,6 +238,23 @@ if ($branchId) {
   [Console]::WriteLine('PERINGATAN: id cabang tidak ditemukan di HTML /items')
 }
 
+# --- dimensi unit pengelola ---------------------------------------------------
+# Id unit dibaca dari <select id="filter-department"> di toolbar /items supaya
+# skrip tidak perlu tahu id yang dihasilkan database dan tetap valid setelah
+# seed ulang. Unit "IT" dipilih karena barang seed INV-2026-0001 memakainya.
+$departmentId = $null
+$departmentMatch = [regex]::Match($items.Body, '<option value="([A-Za-z0-9_-]{15,})">IT</option>')
+if ($departmentMatch.Success) { $departmentId = $departmentMatch.Groups[1].Value }
+
+[Console]::WriteLine('')
+$itemsByDepartment = $null
+if ($departmentId) {
+  [Console]::WriteLine("id unit pengelola IT terdeteksi: $departmentId")
+  $itemsByDepartment = Hit "/items?departmentId=$departmentId" $token
+} else {
+  [Console]::WriteLine('PERINGATAN: id unit pengelola tidak ditemukan di HTML /items')
+}
+
 $itemsFromBranch = Hit '/items?acquisitionSource=BRANCH' $token
 $itemsFromHead = Hit '/items?acquisitionSource=HEAD_OFFICE' $token
 
@@ -380,6 +397,26 @@ HasText 'items(q=bandung)' $itemsSearchBranch.Body 'INV-2026-0001' $false
 Check 'auth GET /items?q=tidak ekonomis status' $itemsSearchReason.Code 200
 HasText 'items(q=tidak ekonomis)' $itemsSearchReason.Body 'INV-2026-0008'
 
+# --- dimensi unit pengelola ---------------------------------------------------
+# Unit pengelola adalah sumbu tersendiri: filter IT harus menyisakan barang IT
+# saja (0001), bukan barang GA (0005). Ini sekaligus membuktikan nilai
+# `departmentId` benar-benar tersimpan dan dipakai oleh `listItems()`.
+HasText 'items' $items.Body 'Unit pengelola'
+HasText 'items' $items.Body 'filter-department'
+if ($departmentId) {
+  Check 'auth GET /items?departmentId status' $itemsByDepartment.Code 200
+  HasText 'items(departmentId=IT)' $itemsByDepartment.Body 'INV-2026-0001'
+  HasText 'items(departmentId=IT)' $itemsByDepartment.Body 'INV-2026-0005' $false
+} else {
+  Check 'auth GET /items?departmentId id unit ditemukan' $false $true
+}
+HasText 'master' $master.Body 'Unit pengelola'
+HasText 'master' $master.Body 'Nama unit'
+HasText 'master' $master.Body 'Kode unit'
+HasText 'master' $master.Body 'General Affairs'
+Check 'api/export memuat kolom unit pengelola' ($csv.Body.Contains('Unit Pengelola')) $true
+Check 'api/export memuat nilai unit pengelola' ($csv.Body.Contains('IT (IT)')) $true
+
 # --- pelepasan aset ----------------------------------------------------------
 Check 'auth GET /items?q=INV-2026-0009 status' $soldSearch.Code 200
 HasText 'items(q=INV-2026-0009)' $soldSearch.Body 'Dijual'
@@ -398,6 +435,7 @@ if ($detail) {
   Check 'auth GET /items/[id] status' $detail.Code 200
   HasText 'detail' $detail.Body 'Riwayat pergerakan'
   HasText 'detail' $detail.Body 'Data barang'
+  HasText 'detail' $detail.Body 'Unit pengelola'
   Check 'auth GET /items/[id]/edit status' $edit.Code 200
   HasText 'edit' $edit.Body 'Edit Barang'
 }
