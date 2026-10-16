@@ -175,3 +175,21 @@ export function itemTypeLabel(type: string | null | undefined): string | null {
   if (!type) return null;
   return isItemTypeCode(type) ? ITEM_TYPE_LABELS[type] : type;
 }
+
+/** Batas unggahan foto barang (5 MiB). */
+export const PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+export const PHOTO_URL_PREFIX = "/api/photos/";
+
+/**
+ * Ukuran berkas untuk pesan ke pengguna, mis. `3,4 MB` atau `720 KB`.
+ *
+ * Dipakai bersama oleh server (`src/lib/photos.ts`, pesan penolakan ukuran) dan
+ * klien (`photo-field.tsx`, catatan sebelum unggah) supaya keduanya menyebut
+ * angka dengan format yang sama persis.
+ */
+export function describePhotoSize(bytes: number): string {
+  const megabytes = bytes / 1024 / 1024;
+  if (megabytes >= 1) return `${megabytes.toFixed(1).replace(".", ",")} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+

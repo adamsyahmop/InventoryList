@@ -12,6 +12,12 @@ import {
 } from "@/lib/action-utils";
 import { requireAuth } from "@/lib/auth";
 import { buildItemCode, itemCodeSequence } from "@/lib/constants";
+import {
+  discardPhoto,
+  deleteUploadedPhoto,
+  savePhotoUpload,
+  type SavedPhoto,
+} from "@/lib/photos";
 import { prisma } from "@/lib/prisma";
 import { CACHE_TAGS } from "@/lib/queries";
 import { itemSchema, movementSchema, toFieldErrors } from "@/lib/validations";
@@ -41,6 +47,36 @@ async function generateItemCode(assetType?: string | null): Promise<string> {
   return buildItemCode(year, next, assetType);
 }
 
+/**
+ * Tentukan `photoUrl` dari isi form barang.
+ *
+ * Aturannya satu arah supaya tidak ada dua sumber kebenaran: berkas unggahan
+ * menang, kalau tidak ada berkas maka centang "hapus foto" mengosongkannya, dan
+ * kalau keduanya tidak ada foto lama dipertahankan (menyunting nama barang
+ * tidak boleh menghapus fotonya).
+ *
+ * Berkas hasil unggahan dikembalikan lewat `uploaded` supaya pemanggil bisa
+ * membuangnya bila penyimpanan ke database gagal.
+ */
+async function resolvePhotoField(
+  formData: FormData,
+  previous: string | null,
+): Promise<
+  | { ok: true; photoUrl: string | null; uploaded: SavedPhoto | null }
+  | { ok: false; message: string }
+> {
+  const upload = await savePhotoUpload(formData);
+  if (!upload.ok) return { ok: false, message: upload.message };
+
+  if (upload.file) {
+    return { ok: true, photoUrl: upload.file.url, uploaded: upload.file };
+  }
+  if (formData.get("removePhoto") !== null) {
+    return { ok: true, photoUrl: null, uploaded: null };
+  }
+  return { ok: true, photoUrl: previous, uploaded: null };
+}
+
 export async function createItemAction(
   _prev: ActionState,
   formData: FormData,
@@ -58,14 +94,33 @@ export async function createItemAction(
 
   const data = parsed.data;
   let createdId = "";
+  // Berkas yang sudah ditulis ke disk tapi belum tentu terpakai (kalau
+  // penyimpanan barangnya gagal) — dibuang di blok `catch` di bawah.
+  let uploaded: SavedPhoto | null = null;
 
   try {
+    const photo = await resolvePhotoField(formData, null);
+    if (!photo.ok) {
+      return {
+        ok: false,
+        message: photo.message,
+        fieldErrors: { photoUrl: photo.message },
+      };
+    }
+    uploaded = photo.uploaded;
+
     // Kode dikosongkan di form → server memilih nomor urut berikutnya.
     const code = data.code ?? (await generateItemCode(data.assetType));
     const searchKey = await buildItemSearchKey(data);
 
     const created = await prisma.item.create({
-      data: { ...toItemWriteData(data, searchKey, code), createdBy: "admin" },
+      data: {
+        ...toItemWriteData(data, searchKey, code),
+        // Nilai dari `toItemWriteData()` ditimpa: URL foto hanya boleh datang
+        // dari unggahan (nama berkasnya dibuat server), bukan dari form.
+        photoUrl: photo.photoUrl,
+        createdBy: "admin",
+      },
     });
     createdId = created.id;
 
@@ -81,6 +136,7 @@ export async function createItemAction(
       },
     });
   } catch (error) {
+    await discardPhoto(uploaded);
     return { ok: false, message: describeError(error) };
   }
 
@@ -109,12 +165,23 @@ export async function updateItemAction(
   }
 
   const data = parsed.data;
+  let uploaded: SavedPhoto | null = null;
 
   try {
     const existing = await prisma.item.findUnique({ where: { id } });
     if (!existing || existing.deletedAt) {
       return { ok: false, message: "Barang tidak ditemukan." };
     }
+
+    const photo = await resolvePhotoField(formData, existing.photoUrl);
+    if (!photo.ok) {
+      return {
+        ok: false,
+        message: photo.message,
+        fieldErrors: { photoUrl: photo.message },
+      };
+    }
+    uploaded = photo.uploaded;
 
     const searchKey = await buildItemSearchKey(data);
     const nextLocationId = data.locationId ?? null;
@@ -125,7 +192,12 @@ export async function updateItemAction(
       await tx.item.update({
         where: { id },
         // Kode kosong saat menyunting = pertahankan kode yang sudah dipakai.
-        data: toItemWriteData(data, searchKey, data.code ?? existing.code),
+        data: {
+          ...toItemWriteData(data, searchKey, data.code ?? existing.code),
+          // Form tidak lagi punya kolom `photoUrl` yang bisa diketik bebas, jadi
+          // nilainya hanya datang dari unggahan, centang hapus, atau foto lama.
+          photoUrl: photo.photoUrl,
+        },
       });
 
       // Hanya tulis riwayat kalau lokasi atau status benar-benar berubah,
@@ -145,12 +217,103 @@ export async function updateItemAction(
         });
       }
     });
+
+    // Berkas foto lama baru dibuang SETELAH database berhasil: kalau penyimpanan
+    // gagal, foto yang masih dipakai tidak ikut hilang dari disk.
+    if (existing.photoUrl !== photo.photoUrl) {
+      await deleteUploadedPhoto(existing.photoUrl);
+    }
   } catch (error) {
+    await discardPhoto(uploaded);
     return { ok: false, message: describeError(error) };
   }
 
   invalidateItemCaches();
   redirect(`/items/${id}`);
+}
+
+/**
+ * Unggah / ganti foto langsung dari halaman detail.
+ *
+ * Dipisah dari `updateItemAction` supaya foto bisa ditambahkan tanpa membuka
+ * (dan menyimpan ulang) seluruh data barang — jalur ini hanya menyentuh kolom
+ * `photoUrl`, jadi tidak ada risiko data lain ikut tertimpa.
+ */
+export async function uploadItemPhotoAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  await requireAuth();
+
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return { ok: false, message: "ID barang tidak ditemukan." };
+
+  const upload = await savePhotoUpload(formData);
+  if (!upload.ok) {
+    return {
+      ok: false,
+      message: upload.message,
+      fieldErrors: { photoUrl: upload.message },
+    };
+  }
+  if (!upload.file) {
+    return { ok: false, message: "Pilih berkas foto terlebih dahulu." };
+  }
+
+  const existing = await prisma.item.findUnique({
+    where: { id },
+    select: { photoUrl: true, deletedAt: true },
+  });
+  if (!existing || existing.deletedAt) {
+    await discardPhoto(upload.file);
+    return { ok: false, message: "Barang tidak ditemukan." };
+  }
+
+  try {
+    await prisma.item.update({
+      where: { id },
+      data: { photoUrl: upload.file.url },
+    });
+  } catch (error) {
+    await discardPhoto(upload.file);
+    return { ok: false, message: describeError(error) };
+  }
+
+  await deleteUploadedPhoto(existing.photoUrl);
+  invalidateItemCaches();
+  return { ok: true, message: "Foto barang tersimpan." };
+}
+
+/** Hapus foto barang beserta berkasnya. Tanpa foto = sudah sesuai tujuan. */
+export async function removeItemPhotoAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  await requireAuth();
+
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return { ok: false, message: "ID barang tidak ditemukan." };
+
+  const existing = await prisma.item.findUnique({
+    where: { id },
+    select: { photoUrl: true, deletedAt: true },
+  });
+  if (!existing || existing.deletedAt) {
+    return { ok: false, message: "Barang tidak ditemukan." };
+  }
+  if (!existing.photoUrl) {
+    return { ok: true, message: "Barang ini belum punya foto." };
+  }
+
+  try {
+    await prisma.item.update({ where: { id }, data: { photoUrl: null } });
+  } catch (error) {
+    return { ok: false, message: describeError(error) };
+  }
+
+  await deleteUploadedPhoto(existing.photoUrl);
+  invalidateItemCaches();
+  return { ok: true, message: "Foto barang dihapus." };
 }
 
 /** Soft delete: data tetap ada supaya riwayat & audit tidak hilang. */

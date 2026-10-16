@@ -1,22 +1,26 @@
 # Catatan Lanjutan — Inventory List
 
-Terakhir diperbarui: 16 Oktober 2026 (sesi lanjutan — Tier A #1 & #2 tertutup:
-`searchKey` dihitung ulang saat data master berubah / barang pindah lokasi, dan
-hapus data master kini **ditolak** bila barisnya masih dipakai; sebelumnya:
-halaman Sampah & pemulihan barang, kode barang otomatis + QR & label cetak,
-fixture seed bermigrasi ke format kode bersuffix).
+Terakhir diperbarui: 16 Oktober 2026 (sesi lanjutan — **foto barang** selesai
+end-to-end: unggah dari form barang & halaman detail, disajikan lewat route
+handler ber-sesi, berkas lama dibersihkan otomatis. Sebelumnya di sesi yang sama:
+Tier A #1 & #2 tertutup (`searchKey` dihitung ulang saat data master berubah /
+barang pindah lokasi, dan hapus data master kini **ditolak** bila barisnya masih
+dipakai); sebelum itu: halaman Sampah & pemulihan barang, kode barang otomatis +
+QR & label cetak, fixture seed bermigrasi ke format kode bersuffix).
 Stack: Next.js 16.4.0 (Turbopack, Cache Components aktif) + Prisma 7.10.0 + SQLite (`dev.db`).
 Repositori: https://github.com/adamsyahmop/InventoryList (branch `main`, commit awal `823b402`).
 Identitas git repo ini: `adamsyahmop` / `adamsyahmop@users.noreply.github.com` (noreply, agar email asli tidak terekspos); `.env.example` di-*unignore* lewat `!.env.example` supaya template tetap ikut ter-commit.
 
 ## Status: aplikasi JALAN dan TERVERIFIKASI ✅
 
-`npm run build` hijau (14/14 halaman), `npm run lint` hijau, `npx tsc --noEmit`
-hijau, `npm run seed` hijau, dan smoke test end-to-end
-**236 pemeriksaan, 0 gagal** (`exit 0`) — dijalankan terhadap build produksi
+`npm run build` hijau (14/14 halaman statis + rute dinamis `/api/export` dan
+`/api/photos/[name]`), `npm run lint`
+hijau, `npx tsc --noEmit` hijau, `npm run seed` hijau, dan smoke test end-to-end
+**285 pemeriksaan, 0 gagal** (`exit 0`) — dijalankan terhadap build produksi
 (`npm run start -- -p 3100`), bukan server dev. Diverifikasi ulang 16 Oktober
-2026 setelah penolakan hapus data master (Paket 5 #2); sebelumnya 205
-pemeriksaan setelah perbaikan `searchKey` (Paket 5 #1).
+2026 setelah foto barang (Paket 5 #3) dan penolakan hapus data master
+(Paket 5 #2); sebelumnya 236 pemeriksaan, dan 205 pemeriksaan setelah perbaikan
+`searchKey` (Paket 5 #1).
 
 > Baris uji manual `INV-2026-0011-ELE` (Charger Laptop Lenovo, dibuat 13 Oktober
 > 2026 lewat form barang baru) sudah dihapus dari `dev.db` — sebelumnya baris itu
@@ -855,11 +859,15 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
    membandingkan password; satu password dipakai bersama, tanpa throttle atau
    lockout → brute force leluasa. Perbaikan: hitung percobaan gagal per IP per
    jendela waktu, balas lambat atau kunci sementara.
-5. **`Item.photoUrl` praktis mati.** Field, validasi, dan input teks ada
-   (`src/components/items/item-form.tsx`), tetapi nilainya tidak dirender di
-   mana pun lagi: bukan di `/items/[id]`, bukan di tabel daftar, bukan di
-   ekspor; tidak ada unggah berkas. Perlu keputusan produk: cukup URL lalu
-   tampilkan di halaman detail (+ kolom Excel), atau lengkapi sampai unggah.
+5. ✅ **SELESAI (Paket 5 #3).** ~~**`Item.photoUrl` praktis mati.** Field,
+   validasi, dan input teks ada (`src/components/items/item-form.tsx`), tetapi
+   nilainya tidak dirender di mana pun lagi: bukan di `/items/[id]`, bukan di
+   tabel daftar, bukan di ekspor; tidak ada unggah berkas.~~ Kolom itu kini
+   **hidup**: diisi hanya lewat unggahan (nama berkas dibuat server, disimpan di
+   `uploads/items`, disajikan `/api/photos/<uuid>.<ext>` ber-sesi), tampil di
+   halaman detail + thumbnail daftar, dan bisa diganti/dihapus dari form barang
+   maupun halaman detail. Satu foto utama per barang; mengetik URL bebas sengaja
+   dihapus supaya sumbernya cuma satu.
 
 ### Tier B — fitur bernilai harian
 
@@ -1048,8 +1056,9 @@ masih dirujuk tidak pernah terhapus.
   sementara ← lokasi sementara) dijalankan dan dibersihkan di bagian yang sama.
   Helper `Submit-Action` mendapat parameter opsional `$overrides` supaya skrip
   bisa mengisi field form data master yang terlihat (input teks/select) — form
-  hapus tetap jalan tanpa itu karena field-nya `hidden`. Hasil: **236
-  pemeriksaan, 0 gagal**, `exit 0`.
+  hapus tetap jalan tanpa itu karena field-nya `hidden`. Hasil saat itu: **236
+  pemeriksaan, 0 gagal**, `exit 0` (kini **285** setelah bagian foto barang
+  ditambahkan, Paket 5 #3).
 
 ### Catatan
 
@@ -1057,6 +1066,115 @@ masih dirujuk tidak pernah terhapus.
   barang yang menunjuk langsung (`sourceBranchId`/`ownerBranchId`), tetapi juga
   karena lokasi miliknya — dan barang yang berada di lokasi itu. Tanpa itu,
   menghapus cabang tetap bisa menihilkan `location.branchId` diam-diam.
+
+## Paket 5 #3 — Foto barang (sesi 16 Oktober 2026)
+
+Tujuan: kolom `Item.photoUrl` yang selama ini mati (temuan Tier A #5) dibuat
+benar-benar berfungsi — satu foto utama per barang, diunggah dari HP/komputer,
+tampil di halaman detail & daftar, dan bisa diganti/dihapus.
+
+### 1. Penyimpanan: berkas di disk, di luar `public/`
+
+`src/lib/photos.ts` (baru) menangani seluruh siklus berkas:
+
+- Berkas ditulis ke `uploads/items/` (dibuat otomatis) — **di luar `public/`**
+  karena folder itu disajikan sebagai aset statis **tanpa** pemeriksaan sesi.
+  Di-gitignore (`/uploads/`), jadi bukan bagian repo.
+- `Item.photoUrl` menyimpan URL **relatif** (`/api/photos/<uuid>.jpg`), bukan
+  path disk: tetap sah walau aplikasi pindah host/folder, dan tidak ada path
+  server yang bocor ke HTML.
+- Jenis gambar ditentukan dari **magic bytes** isi berkas (`sniffImageType`),
+  bukan `File.type` kiriman klien: JPEG (`FF D8 FF`), PNG, GIF, WEBP. Akhiran
+  berkas pun diambil dari hasil sniff, jadi isi disk selalu cocok dengan
+  `Content-Type` yang dikirim ulang.
+- Nama berkas = `randomUUID()` + ekstensi; nama kiriman klien tidak dipakai sama
+  sekali (tidak ada `../`, tidak ada nama yang bisa ditabrak).
+- `deleteUploadedPhoto()` hanya menyentuh berkas yang diawali `/api/photos/` dan
+  namanya cocok pola UUID + ekstensi. Nilai dari luar (`https://…` sisa data
+  lama) dibiarkan, jadi kolom itu tidak bisa dipakai menghapus berkas
+  sembarangan.
+- `discardPhoto()` membuang berkas yang sudah ditulis tetapi gagal dipakai (mis.
+  penyimpanan database ditolak) supaya tidak menumpuk berkas yatim.
+
+Batas ukuran **5 MB** (`PHOTO_MAX_BYTES` di `src/lib/constants.ts`, dipakai
+bersama oleh form & server). Batas body Server Action bawaan Next.js hanya
+**1 MB** sedangkan foto dari HP bisa 3–8 MB → `experimental.serverActions.
+bodySizeLimit: "6mb"` di `next.config.ts`. Foto dari HP juga **dikecilkan di
+browser** dulu (canvas → JPEG, sisi terpanjang 1600 px) oleh `photo-field.tsx`,
+lalu berkas hasilnya dipasang kembali ke input asli lewat `DataTransfer` — jadi
+form tetap terkirim sebagai form biasa, dan tanpa JavaScript pun berkas aslinya
+yang dikirim (server yang menolak dengan pesan jelas).
+
+### 2. Penyajian: `/api/photos/[name]` yang memeriksa sesi
+
+`src/app/api/photos/[name]/route.ts` (baru) membaca berkas lalu membalasnya
+dengan `Content-Type` dari ekstensi, `Cache-Control: private,
+max-age=31536000, immutable` (nama berkas unik per unggahan, isinya tidak pernah
+berubah), dan `X-Content-Type-Options: nosniff`.
+
+> **Jebakan yang mudah terlewat:** matcher di `src/proxy.ts` melewatkan URL
+> berakhiran ekstensi gambar (`*.jpg`, `*.png`, …) supaya aset statis tidak ikut
+> dicek. Artinya permintaan ke `/api/photos/<uuid>.jpg` **tidak lewat proxy**,
+> sehingga `isAuthenticated()` **wajib** dipanggil di dalam route handler —
+> tanpa itu foto barang bisa dibaca siapa saja yang tahu URL-nya.
+
+### 3. UI: kolom di form barang + kontrol di halaman detail
+
+- `src/components/items/photo-field.tsx` (baru, klien): kolom **Foto barang** di
+  form tambah/edit — input berkas, pratinjau, dan centang **Hapus foto yang
+  tersimpan**. Menggantikan input teks "URL foto" yang lama.
+- `src/components/items/item-photo.tsx` (baru, klien): kartu **Foto barang** di
+  halaman detail dengan tombol Unggah/Ganti/Hapus, dan aksinya **hanya menyentuh
+  `photoUrl`** — foto bisa diurus tanpa membuka (dan menyimpan ulang) seluruh data
+  barang.
+- Halaman detail menampilkan fotonya (klik → buka ukuran penuh) atau empty state
+  "Belum ada foto"; tabel daftar barang menampilkan thumbnail 40 px di kolom nama.
+
+Aksi baru di `src/lib/actions/items.ts`: `uploadItemPhotoAction` &
+`removeItemPhotoAction`. `createItemAction` / `updateItemAction` memakai helper
+`resolvePhotoField()` dengan aturan satu arah: **berkas unggahan menang** → kalau
+tidak ada berkas, centang hapus mengosongkan → kalau keduanya tidak ada, foto lama
+**dipertahankan** (menyunting nama barang tidak boleh menghapus fotonya). Berkas
+lama dibuang **setelah** database berhasil disimpan, dan dibuang lagi (`discard`)
+bila penyimpanan gagal — supaya tidak ada berkas yatim.
+
+### 4. Verifikasi
+
+- `npx tsc --noEmit`, `npm run lint`, `npm run build` hijau (rute
+  `/api/photos/[name]` muncul sebagai dynamic).
+- **E2E HTTP ke build produksi** (multipart form server action tanpa JavaScript):
+  unggah JPEG 160 byte → tersimpan sebagai `/api/photos/<uuid>.jpg`, tampil di
+  detail + daftar + form edit; `GET` berkas itu **401 tanpa sesi** dan **200 +
+  `image/jpeg`** dengan sesi, panjang byte-nya **sama**; `..%2F..%2Fdev.db` → 404;
+  nama UUID palsu → 404; berkas `.txt` → "Berkas foto harus berupa gambar JPG,
+  PNG, WEBP, atau GIF."; berkas 5,2 MB → "Ukuran foto maksimal 5 MB"; foto
+  diganti lewat form edit → berkas lama 404; form edit disimpan ulang tanpa
+  berkas → foto tetap; hapus foto → kolom kosong + berkas 404.
+- Snapshot baris `INV-2026-0009-PC` (28 kolom, termasuk `searchKey`) **identik
+  sebelum vs. sesudah** smoke dijalankan — jadi menyimpan ulang form edit tidak
+  menghapus data apa pun.
+- **Penjagaan permanen di `smoke.ps1`**: bagian *FOTO BARANG*, **49 pemeriksaan
+  baru** (31 soal foto + 18 soal simpan-ulang form edit). Helper `Submit-Action`
+  mendapat parameter `$file` (bagian berkas multipart dikirim sebagai byte mentah,
+  bukan lewat `StringBuilder`), helper baru `Get-Binary` (membaca berkas biner
+  tanpa mengubahnya jadi teks) dan `Get-ItemFormValues` (membaca nilai field form
+  edit dari HTML-nya sendiri lalu mengirim ulang apa adanya; checkbox sengaja
+  dilewati karena yang tidak dicentang memang tidak dikirim browser). Total:
+  **285 pemeriksaan, 0 gagal**, `exit 0`.
+
+### Catatan
+
+- Foto **tidak** ikut ekspor Excel; ekspor tetap berisi kolom data barang.
+- Soft delete barang **tidak** menghapus berkasnya (barangnya masih bisa
+  dipulihkan). Berkas hanya dibuang saat foto diganti atau dihapus.
+- `next/image` sengaja **tidak** dipakai: pengoptimal Next mengambil gambar dari
+  server **tanpa cookie sesi**, jadi `/api/photos/...` akan dibalas 401 dan
+  gambarnya rusak. Karena itu `<img>` dipakai langsung, dengan `eslint-disable`
+  satu baris beralasan di tiga tempat.
+- Format ukuran dipakai bersama: `describePhotoSize()` tinggal di
+  `src/lib/constants.ts` (aman untuk klien) dan dipakai server
+  (`photos.ts`, pesan penolakan) maupun klien (`photo-field.tsx`, catatan
+  sebelum unggah) supaya angka yang disebut keduanya sama persis.
 
 ## Hal teknis yang perlu diingat (jangan diulang salahnya)
 
@@ -1118,24 +1236,51 @@ masih dirujuk tidak pernah terhapus.
   `items(setelah pulih)` dan `trash(setelah hapus lagi)` (×2) membaca halaman
   tepat sesudah aksi `Pulihkan`/`Hapus` dan belum melihat perubahannya.
   Mekanismenya belum ditelusuri sampai akar (kandidat: render/cache di dev),
-  tetapi jalur yang sama di server produksi **236/236 hijau** dan data di DB
+  tetapi jalur yang sama di server produksi **285/285 hijau** dan data di DB
   akhirnya benar — jadi jangan menyimpulkan regresi hanya dari hasil di dev.
 - **`searchKey` basi punya dua jalur, bukan satu.** Selain rename data master,
   memindahkan barang juga mengganti nama lokasi di dalam kunci. Keduanya sudah
   ditangani (Paket 5 #1). Jalur ketiga — hapus data master — **ditutup dengan
   menolak penghapusan** (Paket 5 #2), jadi `delete*Action` memang tidak perlu
   merapikan apa pun: baris master yang masih dirujuk tidak pernah terhapus.
+- **URL berekstensi gambar dilewatkan `proxy.ts`.** Matcher proxy punya pengecualian
+  `.*\.(?:png|jpg|jpeg|svg|webp|ico|txt|css|js)$` untuk aset statis, jadi rute
+  seperti `/api/photos/<uuid>.jpg` **tidak melewati proxy** dan tidak mendapat
+  proteksi sesi dari sana. Setiap rute baru yang URL-nya berakhiran ekstensi
+  gambar wajib memanggil `isAuthenticated()` sendiri (dilakukan di
+  `src/app/api/photos/[name]/route.ts`).
+- **`next/image` tidak bisa dipakai untuk berkas ber-sesi.** Pengoptimal Next
+  mengambil gambar dari server tanpa cookie, sehingga `/api/photos/...` dibalas
+  401. Pakai `<img>` + `eslint-disable-next-line @next/next/no-img-element`
+  (beralasan) seperti di `photo-field.tsx`, `item-photo.tsx`, `items-table.tsx`,
+  dan `items/[id]/page.tsx`.
+- **Batas body Server Action naik ke 6 MB** (`experimental.serverActions.
+  bodySizeLimit`), sedangkan batas unggahan foto tetap 5 MB di aplikasi. Kalau
+  batas aplikasi dinaikkan, angka body juga harus naik — kalau tidak, unggahan
+  ditolak framework sebelum validasi kita sempat berbicara.
+- **`Submit-Action` di `smoke.ps1` bisa mengirim berkas** lewat parameter `$file`
+  (nama field → `Path`/`FileName`/`ContentType`). Bagian berkas ditulis sebagai
+  byte mentah ke `MemoryStream`; jangan pernah memasukkannya ke `StringBuilder`
+  karena isinya biner. Untuk mengirim ulang form barang yang punya banyak field
+  wajib, pakai `Get-ItemFormValues` (membaca nilai dari HTML form) — **jangan**
+  mengisi sebagian field saja, karena `updateItemAction` menulis semua kolom:
+  field yang tidak ikut terkirim akan dikosongkan. Aksi yang berakhir `redirect()`
+  dibalas **303**, bukan 200.
 
 ## Artefak
 
 - `smoke.ps1` (root project) — skrip smoke test, **dipertahankan**.
 - `dev.db` — database SQLite berisi data seed.
+- `uploads/items/` — berkas foto barang (di-gitignore). Bukan artefak uji: isinya
+  data pengguna, jadi **jangan** dihapus saat bersih-bersih. Folder dibuat
+  otomatis saat unggahan pertama.
 - `smoke.log` — output smoke test terakhir (boleh dihapus kapan saja).
 - `scripts/rebuild-search-keys.ts` (+ `npm run rebuild-search-keys`) —
   **dipertahankan**: backfill idempoten kolom `searchKey`. Ini satu-satunya isi
   `scripts/`; semua skrip `tmp-*.ts` / `tmp-*.ps1` dari sesi ini sudah dihapus.
-- Server `next start -p 3100` dipakai untuk verifikasi sesi 9 Oktober 2026 dan
-  12 Oktober 2026; matikan dengan `Stop-Process` bila sudah tidak dipakai.
+- Server `next start -p 3100` dipakai untuk verifikasi sesi 9 Oktober 2026,
+  12 Oktober 2026, dan 16 Oktober 2026; matikan dengan `Stop-Process` bila sudah
+  tidak dipakai.
   Perintah verifikasi lengkap (build → seed → "panaskan" cache → smoke):
 
   ```powershell
@@ -1155,5 +1300,6 @@ masih dirujuk tidak pernah terhapus.
   membedah database. Hal yang sama berlaku untuk sesi 15 Oktober 2026
   (`tmp-ids.ts`, `tmp-keys.ts`, `tmp-move-check.ts`, `tmp-cleanup.ts`,
   `tmp-verify-search-keys.ts`, `tmp-final.ts`, `smoke-port3000.tmp.ps1`) —
-  semuanya sudah dihapus. `dev-server.log` / `dev-server.err.log` dari server
-  dev latar belakang juga artefak lokal, bukan bagian aplikasi.
+  semuanya sudah dihapus, begitu pula `scripts/tmp-verify-final.ts` dari sesi
+  16 Oktober 2026 (foto barang). `dev-server.log` / `dev-server.err.log` dari
+  server dev latar belakang juga artefak lokal, bukan bagian aplikasi.

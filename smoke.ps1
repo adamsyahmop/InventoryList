@@ -127,13 +127,75 @@ function Get-Html([string]$path, [string]$cookie) {
   return $body
 }
 
+# Ambil berkas biner (foto) dengan cookie sesi. Tidak seperti `Hit()`, isinya
+# TIDAK diubah menjadi teks: foto diuji utuh byte-nya.
+function Get-Binary([string]$path, [string]$cookie) {
+  $req = [System.Net.HttpWebRequest]::Create("$base$path")
+  $req.AllowAutoRedirect = $false
+  $req.Timeout = 30000
+  if ($cookie) { $req.Headers.Add('Cookie', "inventory_session=$cookie") }
+  try { $res = $req.GetResponse() } catch [System.Net.WebException] { $res = $_.Exception.Response }
+  $code = [int]$res.StatusCode
+  $ct = if ($res.ContentType) { $res.ContentType } else { '' }
+  $bytes = @()
+  if ($code -eq 200) {
+    $memory = New-Object System.IO.MemoryStream
+    $res.GetResponseStream().CopyTo($memory)
+    $bytes = $memory.ToArray()
+    $memory.Dispose()
+  }
+  $res.Close()
+  $line = "{0,-50} {1,-4} {2,-24} {3,-26} bytes={4}" -f $path, $code, '', $ct, $bytes.Length
+  [Console]::WriteLine($line)
+  return [pscustomobject]@{ Code = $code; ContentType = $ct; Bytes = $bytes }
+}
+
+# Nilai field form barang dibaca dari HTML-nya sendiri: React menuliskan nilai
+# awal input sebagai atribut `value`, menandai <option> terpilih dengan
+# `selected`, dan isi <textarea> di antara tag. Dengan itu form bisa dikirim
+# ulang apa adanya — menyimpan ulang tidak boleh menghapus data yang tidak
+# sedang diuji.
+#
+# Checkbox sengaja dilewati (mis. `removePhoto`): yang tidak dicentang tidak
+# dikirim browser, jadi menyalinnya sebagai teks akan mengubah arti form.
+function Get-ItemFormValues([string]$html) {
+  $values = @{}
+  foreach ($match in [regex]::Matches($html, '<input[^>]*name="([^"]+)"[^>]*>')) {
+    $tag = $match.Value
+    if ($tag.Contains('type="file"') -or $tag.Contains('type="checkbox"')) { continue }
+    $name = $match.Groups[1].Value
+    if ($name.StartsWith('$ACTION')) { continue }
+    $valueMatch = [regex]::Match($tag, 'value="([^"]*)"')
+    $value = ''
+    if ($valueMatch.Success) {
+      $value = $valueMatch.Groups[1].Value.Replace('&quot;', '"').Replace('&#x27;', "'").Replace('&amp;', '&')
+    }
+    $values[$name] = $value
+  }
+  foreach ($match in [regex]::Matches($html, '(?s)<select[^>]*name="([^"]+)"[^>]*>(.*?)</select>')) {
+    $selected = [regex]::Match($match.Groups[2].Value, '<option value="([^"]*)"[^>]*selected')
+    $values[$match.Groups[1].Value] = if ($selected.Success) { $selected.Groups[1].Value } else { '' }
+  }
+  foreach ($match in [regex]::Matches($html, '(?s)<textarea[^>]*name="([^"]+)"[^>]*>(.*?)</textarea>')) {
+    $values[$match.Groups[1].Value] = $match.Groups[2].Value.Replace('&lt;', '<').Replace('&gt;', '>').Replace('&amp;', '&')
+  }
+  return $values
+}
+
+# Satu nilai baris "Data barang" di halaman detail, mis. label "Kategori".
+function Get-DetailValue([string]$html, [string]$label) {
+  $match = [regex]::Match($html, '(?s)<dt[^>]*>\s*' + [regex]::Escape($label) + '\s*</dt>\s*<dd[^>]*>(.*?)</dd>')
+  if ($match.Success) { return $match.Groups[1].Value.Trim() }
+  return ''
+}
+
 # Kirim form server action TANPA JavaScript (jalur progressive enhancement).
 # React menaruh id action + state awal sebagai input hidden `$ACTION_*` di dalam
 # <form>, jadi POST multipart biasa cukup untuk meniru submit. Dengan ini aksi
 # `deleteItemAction` / `restoreItemAction` benar-benar dieksekusi, bukan hanya
 # halamannya di-GET. Form dipilih lewat teks tombolnya, supaya tetap benar walau
 # tombol Hapus dan Pulihkan sama-sama ada di satu halaman.
-function Submit-Action([string]$path, [string]$buttonText, [string]$idContains, [string]$cookie, [hashtable]$overrides = @{}) {
+function Submit-Action([string]$path, [string]$buttonText, [string]$idContains, [string]$cookie, [hashtable]$overrides = @{}, [hashtable]$file = @{}) {
   $html = Get-Html $path $cookie
   $fields = $null
   foreach ($formMatch in [regex]::Matches($html, '(?s)<form\b.*?</form>')) {
@@ -163,6 +225,9 @@ function Submit-Action([string]$path, [string]$buttonText, [string]$idContains, 
   # Body multipart disusun manual dan dikirim lewat HttpWebRequest — sama seperti
   # `Hit()` — karena HttpClient mengabaikan header Cookie yang dipasang manual di
   # sini, sehingga request dianggap anonim dan proxy mengalihkannya ke /login.
+  # Field teks disusun sebagai string, sedangkan bagian berkas (`$file`) ditulis
+  # sebagai byte mentah lewat MemoryStream — isinya biner, jadi tidak boleh
+  # melewati StringBuilder/UTF-8 seperti field teks.
   $boundary = '----smoke' + [Guid]::NewGuid().ToString('N')
   $builder = New-Object System.Text.StringBuilder
   foreach ($key in $fields.Keys) {
@@ -171,8 +236,25 @@ function Submit-Action([string]$path, [string]$buttonText, [string]$idContains, 
     [void]$builder.Append([string]$fields[$key])
     [void]$builder.Append("`r`n")
   }
-  [void]$builder.Append("--$boundary--`r`n")
-  $bytes = [Text.Encoding]::UTF8.GetBytes($builder.ToString())
+  $bodyStream = New-Object System.IO.MemoryStream
+  $headBytes = [Text.Encoding]::UTF8.GetBytes($builder.ToString())
+  $bodyStream.Write($headBytes, 0, $headBytes.Length)
+  foreach ($name in $file.Keys) {
+    $part = $file[$name]
+    $partHead = "--$boundary`r`n" +
+      "Content-Disposition: form-data; name=`"$name`"; filename=`"$($part.FileName)`"`r`n" +
+      "Content-Type: $($part.ContentType)`r`n`r`n"
+    $partHeadBytes = [Text.Encoding]::UTF8.GetBytes($partHead)
+    $bodyStream.Write($partHeadBytes, 0, $partHeadBytes.Length)
+    $partBytes = [IO.File]::ReadAllBytes($part.Path)
+    $bodyStream.Write($partBytes, 0, $partBytes.Length)
+    $crlf = [Text.Encoding]::UTF8.GetBytes("`r`n")
+    $bodyStream.Write($crlf, 0, $crlf.Length)
+  }
+  $tailBytes = [Text.Encoding]::UTF8.GetBytes("--$boundary--`r`n")
+  $bodyStream.Write($tailBytes, 0, $tailBytes.Length)
+  $bytes = $bodyStream.ToArray()
+  $bodyStream.Dispose()
 
   $req = [System.Net.HttpWebRequest]::Create("$base$path")
   $req.Method = 'POST'
@@ -761,6 +843,137 @@ if ($trashId) {
   HasText 'items(setelah hapus lagi)' $itemsAfterDelete.Body $trashName $false
 } else {
   Check 'auth GET /items/terhapus memuat barang terhapus' $false $true
+}
+
+# --- Foto barang --------------------------------------------------------------
+# Foto disimpan sebagai berkas di `uploads/items` (di luar `public/`) dan
+# disajikan lewat route handler sendiri yang memeriksa sesi. Yang diuji di sini
+# adalah jalur nyatanya: unggah multipart berisi berkas biner lewat form di
+# halaman detail (tanpa JavaScript), penyajian kembali berkasnya, penolakan
+# berkas yang bukan gambar/terlalu besar, dan pembersihan saat foto dihapus.
+# Barang seed tidak punya foto, dan di akhir bagian ini fotonya dihapus lagi —
+# jadi isi database & folder unggahan kembali seperti semula.
+[Console]::WriteLine('')
+[Console]::WriteLine('=== FOTO BARANG ===')
+
+$photoFile = Join-Path $env:TEMP 'smoke-photo.jpg'
+# JPEG 1x1 px (160 byte) — cukup untuk membuktikan berkas biner sampai utuh.
+[IO.File]::WriteAllBytes($photoFile, [Convert]::FromBase64String(
+  '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q=='
+))
+$photoFixture = [IO.File]::ReadAllBytes($photoFile)
+Check 'berkas uji foto berformat JPEG' (($photoFixture[0] -eq 0xFF) -and ($photoFixture[1] -eq 0xD8) -and ($photoFixture[$photoFixture.Length - 1] -eq 0xD9)) $true
+
+$textFile = Join-Path $env:TEMP 'smoke-not-a-photo.txt'
+[IO.File]::WriteAllText($textFile, 'ini bukan gambar')
+# 5,2 MB: di atas batas foto (5 MB) tetapi masih di bawah batas body Server
+# Action (6 MB), jadi yang diuji memang validasi ukuran milik aplikasi.
+$bigFile = Join-Path $env:TEMP 'smoke-photo-besar.jpg'
+$bigBytes = New-Object byte[] (5 * 1024 * 1024 + 200000)
+$bigBytes[0] = 0xFF; $bigBytes[1] = 0xD8; $bigBytes[2] = 0xFF
+[IO.File]::WriteAllBytes($bigFile, $bigBytes)
+
+if ($itemId) {
+  HasText 'detail(foto)' $detail.Body 'Foto barang'
+  HasText 'detail(foto)' $detail.Body 'Belum ada foto'
+  HasText 'detail(foto)' $detail.Body 'Unggah foto'
+  # Tombol hapus hanya muncul kalau memang ada foto yang bisa dihapus.
+  HasText 'detail(foto)' $detail.Body 'Hapus foto' $false
+
+  $upload = Submit-Action "/items/$itemId" 'Unggah foto' $itemId $token @{} `
+    @{ photo = @{ Path = $photoFile; FileName = 'barang.jpg'; ContentType = 'image/jpeg' } }
+  Check 'POST unggah foto status' $upload.Code 200
+  HasText 'POST unggah foto' $upload.Body 'Foto barang tersimpan.'
+
+  # Nama berkas dibuat server (UUID + ekstensi dari isi berkas), jadi tidak ada
+  # bagian dari nama kiriman klien yang ikut tersimpan.
+  $photoMatch = [regex]::Match($upload.Body, '/api/photos/[0-9a-f-]{36}\.jpg')
+  Check 'foto tampil di halaman detail' $photoMatch.Success $true
+  $photoPath = $photoMatch.Value
+  if (-not $photoMatch.Success) {
+    Check 'nama berkas foto terdeteksi' $false $true
+  }
+
+  $detailAfterUpload = Hit "/items/$itemId" $token
+  HasText 'detail(setelah unggah)' $detailAfterUpload.Body 'Ganti foto'
+  HasText 'detail(setelah unggah)' $detailAfterUpload.Body 'Hapus foto'
+  HasText 'detail(setelah unggah)' $detailAfterUpload.Body 'Belum ada foto' $false
+
+  # Daftar barang & form edit ikut menampilkan fotonya.
+  $itemsAfterUpload = Hit '/items' $token
+  HasText 'items(setelah unggah)' $itemsAfterUpload.Body '/api/photos/'
+  $editAfterUpload = Hit "/items/$itemId/edit" $token
+  HasText 'edit(setelah unggah)' $editAfterUpload.Body 'Foto barang'
+  HasText 'edit(setelah unggah)' $editAfterUpload.Body 'Hapus foto yang tersimpan'
+
+  if ($photoMatch.Success) {
+    # Berkas TIDAK di `public/`: tanpa sesi harus ditolak, dengan sesi utuh.
+    $photoAnon = Get-Binary $photoPath ''
+    Check 'GET foto tanpa sesi' $photoAnon.Code 401
+    $photoAuthed = Get-Binary $photoPath $token
+    Check 'GET foto dengan sesi' $photoAuthed.Code 200
+    Check 'tipe konten foto' $photoAuthed.ContentType 'image/jpeg'
+    Check 'panjang berkas foto sama' $photoAuthed.Bytes.Length $photoFixture.Length
+    Check 'isi foto sama dengan yang diunggah' (($photoAuthed.Bytes[0] -eq 0xFF) -and ($photoAuthed.Bytes[1] -eq 0xD8)) $true
+    # Nama berkas dibatasi pola UUID + ekstensi, jadi tidak bisa menembus folder.
+    Check 'GET foto path traversal' (Get-Binary '/api/photos/..%2F..%2Fdev.db' $token).Code 404
+    Check 'GET foto tidak ada' (Get-Binary '/api/photos/00000000-0000-0000-0000-000000000000.jpg' $token).Code 404
+  }
+
+  # Berkas yang bukan gambar ditolak, dan foto lama tidak ikut hilang.
+  $notImage = Submit-Action "/items/$itemId" 'Ganti foto' $itemId $token @{} `
+    @{ photo = @{ Path = $textFile; FileName = 'catatan.txt'; ContentType = 'text/plain' } }
+  Check 'POST unggah non-gambar status' $notImage.Code 200
+  HasText 'POST unggah non-gambar' $notImage.Body 'Berkas foto harus berupa gambar'
+  HasText 'POST unggah non-gambar' $notImage.Body '/api/photos/'
+
+  $tooBig = Submit-Action "/items/$itemId" 'Ganti foto' $itemId $token @{} `
+    @{ photo = @{ Path = $bigFile; FileName = 'besar.jpg'; ContentType = 'image/jpeg' } }
+  Check 'POST unggah terlalu besar status' $tooBig.Code 200
+  HasText 'POST unggah terlalu besar' $tooBig.Body 'Ukuran foto maksimal 5 MB'
+
+  # --- form edit barang ------------------------------------------------------
+  # Form edit punya banyak field wajib. Nilainya dibaca dari HTML form itu
+  # sendiri lalu dikirim ulang apa adanya, sehingga menyimpan ulang TIDAK boleh
+  # menghapus data barang — jalur ini sebelumnya tidak diuji sama sekali.
+  $formValues = Get-ItemFormValues (Hit "/items/$itemId/edit" $token).Body
+  Check 'field form edit terbaca' ($formValues.Count -gt 15) $true
+
+  $labels = @('Kategori', 'Unit pengelola', 'Merek', 'Model / tipe', 'Nomor seri', 'Jumlah', 'Harga satuan', 'Tanggal beli', 'Lokasi', 'Dipegang oleh', 'Catatan')
+  $beforeEdit = @{}
+  foreach ($label in $labels) { $beforeEdit[$label] = Get-DetailValue $detailAfterUpload.Body $label }
+
+  # Simpan ulang sambil mengganti foto: berkas lama harus ikut dibuang.
+  $editWithPhoto = Submit-Action "/items/$itemId/edit" 'Simpan Perubahan' $itemId $token $formValues `
+    @{ photo = @{ Path = $photoFile; FileName = 'barang.jpg'; ContentType = 'image/jpeg' } }
+  Check 'POST form edit + foto status' $editWithPhoto.Code 303
+
+  $detailAfterEdit = Hit "/items/$itemId" $token
+  $newPhoto = [regex]::Match($detailAfterEdit.Body, '/api/photos/[0-9a-f-]{36}\.jpg').Value
+  Check 'foto diganti lewat form edit' (($newPhoto -ne '') -and ($newPhoto -ne $photoPath)) $true
+  if ($photoPath -and $newPhoto) {
+    Check 'berkas foto lama dibuang' (Get-Binary $photoPath $token).Code 404
+  }
+  foreach ($label in $labels) {
+    Check "data '$label' tidak hilang saat simpan ulang" (Get-DetailValue $detailAfterEdit.Body $label) $beforeEdit[$label]
+  }
+
+  # Menyimpan ulang TANPA berkas harus mempertahankan foto yang sudah ada.
+  $editKeepPhoto = Submit-Action "/items/$itemId/edit" 'Simpan Perubahan' $itemId $token (Get-ItemFormValues (Hit "/items/$itemId/edit" $token).Body)
+  Check 'POST form edit tanpa berkas status' $editKeepPhoto.Code 303
+  $detailAfterKeep = Hit "/items/$itemId" $token
+  HasText 'foto bertahan saat simpan ulang' $detailAfterKeep.Body $newPhoto
+  Check 'riwayat pergerakan tidak bertambah' (Get-MovementCount $detailAfterKeep.Body) (Get-MovementCount $detailAfterUpload.Body)
+
+  # Hapus foto: kolom dikosongkan sekaligus berkasnya dibuang dari disk.
+  $removePhoto = Submit-Action "/items/$itemId" 'Hapus foto' $itemId $token
+  Check 'POST hapus foto status' $removePhoto.Code 200
+  HasText 'POST hapus foto' $removePhoto.Body 'Foto barang dihapus.'
+  HasText 'detail(setelah hapus foto)' $removePhoto.Body 'Belum ada foto'
+  HasText 'detail(setelah hapus foto)' $removePhoto.Body '/api/photos/' $false
+  Check 'berkas foto dibuang dari disk' (Get-Binary $newPhoto $token).Code 404
+} else {
+  Check 'detail barang tersedia untuk uji foto' $false $true
 }
 
 [Console]::WriteLine('')

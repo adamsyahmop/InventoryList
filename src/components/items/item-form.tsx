@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { PhotoField } from "@/components/items/photo-field";
 import { Button } from "@/components/ui/button";
 import { Alert, Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/form-controls";
@@ -465,9 +466,7 @@ export function ItemForm({
             <Input id="assignedTo" name="assignedTo" defaultValue={values.assignedTo} />
           </Field>
 
-          <Field label="URL foto" htmlFor="photoUrl" error={errorOf("photoUrl")} className="lg:col-span-2">
-            <Input id="photoUrl" name="photoUrl" defaultValue={values.photoUrl} placeholder="https://…" />
-          </Field>
+          <PhotoField currentUrl={values.photoUrl} error={errorOf("photoUrl")} />
 
           <Field label="Catatan" htmlFor="notes" error={errorOf("notes")} className="sm:col-span-2 lg:col-span-3">
             <Textarea id="notes" name="notes" defaultValue={values.notes} rows={3} />

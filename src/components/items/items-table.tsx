@@ -47,17 +47,33 @@ export function ItemsTable({ items }: { items: ItemWithRelations[] }) {
                 {item.code}
               </td>
               <td className="px-4 py-2.5">
-                <Link
-                  href={`/items/${item.id}`}
-                  className="font-medium text-neutral-900 hover:text-indigo-600 hover:underline"
-                >
-                  {item.name}
-                </Link>
-                <p className="mt-0.5 text-xs text-neutral-400">
-                  {[item.brand?.name, item.model].filter(Boolean).join(" · ") ||
-                    "—"}
-                  {item.quantity > 1 ? ` · ${formatNumber(item.quantity)} ${item.unit}` : ""}
-                </p>
+                <div className="flex items-center gap-3">
+                  {item.photoUrl ? (
+                    // Berkas lokal dari route handler sendiri (butuh sesi), jadi
+                    // tidak bisa lewat pengoptimal `next/image`.
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={item.photoUrl}
+                      alt=""
+                      className="size-10 shrink-0 rounded-md border border-neutral-200 object-cover"
+                    />
+                  ) : null}
+                  <div>
+                    <Link
+                      href={`/items/${item.id}`}
+                      className="font-medium text-neutral-900 hover:text-indigo-600 hover:underline"
+                    >
+                      {item.name}
+                    </Link>
+                    <p className="mt-0.5 text-xs text-neutral-400">
+                      {[item.brand?.name, item.model].filter(Boolean).join(" · ") ||
+                        "—"}
+                      {item.quantity > 1
+                        ? ` · ${formatNumber(item.quantity)} ${item.unit}`
+                        : ""}
+                    </p>
+                  </div>
+                </div>
               </td>
               <td className="px-4 py-2.5 text-neutral-600">
                 {item.category?.name ?? "—"}

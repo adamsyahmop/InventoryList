@@ -4,11 +4,11 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 Aplikasi pencatatan inventaris barang: kode unik (boleh dibuat otomatis dengan
 suffix jenis, mis. `INV-2026-0011-LPT`), nama, merek, jenis/kategori, tanggal
-beli, harga, lokasi, supplier, garansi, kondisi, dan status — lengkap dengan
-cabang (lokasi, pembeli, pemilik), metadata pelepasan aset (dibuang / dijual),
-riwayat pergerakan barang, halaman **Sampah** (soft delete + pemulihan),
-**label QR siap cetak per barang**, serta ekspor **Excel (.xlsx)** dengan satu
-sheet per tahun.
+beli, harga, lokasi, supplier, garansi, kondisi, status, dan **foto barang**
+(diunggah dari HP/komputer) — lengkap dengan cabang (lokasi, pembeli, pemilik),
+metadata pelepasan aset (dibuang / dijual), riwayat pergerakan barang, halaman
+**Sampah** (soft delete + pemulihan), **label QR siap cetak per barang**, serta
+ekspor **Excel (.xlsx)** dengan satu sheet per tahun.
 
 Stack: **Next.js 16.4.0** (Turbopack, Cache Components + Partial Prefetching) ·
 **Prisma 7.10.0** · **SQLite** (`dev.db`) · **Zod** · **`qrcode`** (QR SVG
@@ -44,8 +44,8 @@ pesan error), semua halaman utama dengan cookie sesi, isi konten penting
 (termasuk angka dashboard dan nilai aset aktif vs nilai perolehan), filter
 cabang/sumber/unit pengelola, ekspor Excel (berkas .xlsx diperiksa isinya lewat
 `System.IO.Compression`: nama sheet, format angka, dan tanggal asli Excel),
-**penolakan hapus data master yang masih dipakai**, empty state filter, dan UI
-404. Total **236 pemeriksaan**.
+**penolakan hapus data master yang masih dipakai**, **unggah & penyajian foto
+barang**, empty state filter, dan UI 404. Total **285 pemeriksaan**.
 
 Bagian **SAMPAH** di skrip itu menguji soft delete secara end-to-end: barang
 terhapus tampil di `/items/terhapus` dan absen dari daftar aktif/ekspor Excel,
@@ -75,6 +75,20 @@ baris sementara (kategori `ZZ-Smoke-Kategori`) dan rujukan **tidak langsung**
 keduanya dihapus). Semua baris sementara dihapus di bagian yang sama, jadi isi
 database kembali seperti semula.
 
+Bagian **FOTO BARANG** menguji unggah foto lewat jalur tanpa JavaScript: berkas
+JPEG biner dikirim ke form di halaman detail, nilainya tersimpan sebagai
+`/api/photos/<uuid>.jpg`, lalu **disajikan kembali** oleh route handler sendiri
+(200 + `image/jpeg`, panjang byte sama) dan **ditolak tanpa sesi** (401) karena
+berkasnya sengaja tidak ditaruh di `public/`. Bagian ini juga memverifikasi nama
+berkas kiriman klien tidak dipakai (nama dibuat server, pola UUID + ekstensi),
+path traversal `..%2F..%2Fdev.db` ditolak (404), berkas non-gambar dan berkas
+5,2 MB ditolak dengan pesan yang terbaca pengguna, foto **diganti** lewat form
+edit (berkas lama ikut dibuang) lalu **dipertahankan** saat form edit disimpan
+ulang tanpa berkas, dan terakhir penghapusan foto membuang berkasnya dari disk.
+Form edit dikirim ulang dengan nilai field yang dibaca dari HTML-nya sendiri
+(`Get-ItemFormValues`), jadi bagian ini sekaligus membuktikan menyimpan ulang
+**tidak menghapus** data barang.
+
 ```bash
 npm run build
 npm run start -- -p 3100        # jalankan di terminal terpisah
@@ -102,7 +116,15 @@ konstanta `$secret` di `smoke.ps1` **harus sama** dengan `SESSION_SECRET` di
 > `npm run seed`, jadi hapus dulu barisnya (atau reset `dev.db` seperti di atas)
 > sebelum menyalahkan aplikasi. Per 16 Oktober 2026 baris uji
 > `INV-2026-0011-ELE` sudah dibersihkan, `dev.db` berisi 10 barang (9 aktif + 1
-> ter-soft-delete), dan hasilnya **236 pemeriksaan, 0 gagal** (16 Oktober 2026).
+> ter-soft-delete), dan hasilnya **285 pemeriksaan, 0 gagal** (16 Oktober 2026).
+
+> Foto barang disimpan sebagai **berkas** di `uploads/items`, di luar `public/`
+> dan di-gitignore (folder dibuat otomatis saat unggahan pertama). Isinya tidak
+> ikut `dev.db`, jadi ikutkan folder itu ke backup; kalau dihapus, kolom
+> `photoUrl` barang tetap ada tetapi gambarnya hilang. Batas ukuran 5 MB di
+> aplikasi, sedangkan batas body Server Action dinaikkan ke 6 MB lewat
+> `experimental.serverActions.bodySizeLimit` di `next.config.ts` (foto dari HP
+> dikecilkan dulu di browser oleh `photo-field.tsx`).
 
 > Jalankan smoke terhadap **hasil `npm run build`** seperti di atas, bukan
 > terhadap `npm run dev`. Di server dev, pemeriksaan Sampah yang membaca halaman
@@ -220,6 +242,32 @@ sehingga riwayat pergerakan dan nilai perolehannya tetap utuh untuk audit.
   tidak punya form pergerakan di halaman detailnya, jadi statusnya tidak bisa
   "diubah diam-diam" selama berada di Sampah.
 - Semua aksi ini diuji end-to-end oleh bagian **SAMPAH** di `smoke.ps1`.
+
+## Foto barang
+
+Tiap barang punya **satu foto utama** (`Item.photoUrl`), diunggah dari halaman
+detail maupun dari form barang.
+
+- **Berkas disimpan di `uploads/items/`**, bukan di `public/` (folder itu
+  di-gitignore dan dibuat otomatis). Foto dari HP dikecilkan dulu di browser
+  (`photo-field.tsx`: sisi terpanjang 1600 px → JPEG) supaya hemat kuota, dan
+  server tetap menolak berkas di atas **5 MB**.
+- **Jenis berkas ditentukan dari isi berkas** (magic bytes JPEG/PNG/WEBP/GIF),
+  bukan nama atau `Content-Type` kiriman klien. Nama berkas dibuat server
+  (`randomUUID()` + ekstensi hasil pembacaan isi), jadi nama kiriman klien tidak
+  pernah menyentuh disk.
+- **Penyajian lewat `/api/photos/[name]`** yang memeriksa sesi sendiri (401 tanpa
+  cookie, 404 bila tidak ada). Matcher di `src/proxy.ts` melewatkan URL
+  berekstensi gambar, jadi rute ini **tidak** boleh mengandalkan proxy. Respons
+  dibalas `private, immutable` + `nosniff` karena nama berkas unik per unggahan.
+- Halaman detail punya kartu **Foto barang** dengan tombol Unggah/Ganti/Hapus
+  yang aksinya hanya menyentuh `photoUrl`, dan daftar barang menampilkan
+  thumbnail. Mengganti foto membuang berkas lama **setelah** database berhasil
+  disimpan; menyimpan ulang form **tanpa** berkas mempertahankan foto lama.
+- Foto **tidak** ikut ekspor Excel, dan soft delete barang **tidak** menghapus
+  berkasnya (barangnya masih bisa dipulihkan). Berkas hanya dibuang saat foto
+  diganti atau dihapus.
+- Semua ini diuji end-to-end oleh bagian **FOTO BARANG** di `smoke.ps1`.
 
 ## Kode barang otomatis, jenis barang & label QR
 

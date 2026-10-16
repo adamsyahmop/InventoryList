@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { DeleteItemButton } from "@/components/items/delete-item-button";
+import { ItemPhotoControls } from "@/components/items/item-photo";
 import { MovementForm } from "@/components/items/movement-form";
 import { ButtonLink } from "@/components/ui/button";
 import {
@@ -246,13 +247,47 @@ async function ItemDetail({ params }: { params: Promise<{ id: string }> }) {
           </CardBody>
         </Card>
 
-        {isDeleted ? null : (
-          <MovementForm
-            itemId={item.id}
-            currentLocationId={item.locationId ?? ""}
-            currentStatus={item.status}
-            locations={master.locations}
+        <Card>
+          <CardHeader
+            title="Foto barang"
+            description="Satu foto utama: kondisi fisik saat barang diterima atau dipakai."
           />
+          <CardBody className="flex flex-col gap-3">
+            {item.photoUrl ? (
+              <a href={item.photoUrl} target="_blank" rel="noreferrer">
+                {/* Berkas lokal dari route handler sendiri (butuh sesi), jadi
+                    tidak bisa lewat pengoptimal `next/image`. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={item.photoUrl}
+                  alt={`Foto ${item.name}`}
+                  className="h-48 w-full rounded-lg border border-neutral-200 object-cover"
+                />
+              </a>
+            ) : (
+              <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-neutral-300 bg-neutral-50 text-xs text-neutral-500">
+                Belum ada foto
+              </div>
+            )}
+
+            {isDeleted ? null : (
+              <ItemPhotoControls
+                itemId={item.id}
+                hasPhoto={Boolean(item.photoUrl)}
+              />
+            )}
+          </CardBody>
+        </Card>
+
+        {isDeleted ? null : (
+          <div className="lg:col-span-2">
+            <MovementForm
+              itemId={item.id}
+              currentLocationId={item.locationId ?? ""}
+              currentStatus={item.status}
+              locations={master.locations}
+            />
+          </div>
         )}
       </div>
 

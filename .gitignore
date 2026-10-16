@@ -66,3 +66,6 @@ next-env.d.ts
 /prisma/*.db
 /prisma/*.db-journal
 
+# unggahan foto barang: berkas runtime, bukan bagian dari repo
+/uploads/
+
