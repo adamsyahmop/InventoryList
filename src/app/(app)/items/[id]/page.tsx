@@ -21,6 +21,8 @@ import {
   ITEM_CONDITION_LABELS,
   ITEM_STATUS_BADGE,
   ITEM_STATUS_LABELS,
+  PHOTO_FLASH_PARAM,
+  PHOTO_FLASH_VALUE,
   itemTypeLabel,
 } from "@/lib/constants";
 import { ItemStatus } from "@/generated/prisma/enums";
@@ -33,8 +35,11 @@ import {
 } from "@/lib/format";
 import { itemDetailUrl, qrSvg, requestOrigin } from "@/lib/qr";
 import { getItem, getItemMovements, getMasterData } from "@/lib/queries";
+import { firstParam } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Detail Barang" };
+
+type SearchParams = Record<string, string | string[] | undefined>;
 
 function DetailRow({
   label,
@@ -62,7 +67,13 @@ function DetailSkeleton() {
   );
 }
 
-async function ItemDetail({ params }: { params: Promise<{ id: string }> }) {
+async function ItemDetail({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<SearchParams>;
+}) {
   // `connection()` menandai boundary ini dirender saat request, bukan saat
   // prerender. Diperlukan karena badge "Garansi N hari lagi" memakai
   // `daysUntil()` yang membaca waktu sekarang (`new Date()`); Cache Components
@@ -71,6 +82,11 @@ async function ItemDetail({ params }: { params: Promise<{ id: string }> }) {
   await connection();
 
   const { id } = await params;
+  // Keterangan "foto berhasil diunggah" setelah menyimpan form tambah/edit:
+  // pengalihan halaman tidak bisa membawa state, jadi aksinya menitipkan
+  // penanda di URL (`/items/<id>?photo=uploaded`) yang dibaca di sini.
+  const justUploadedPhoto =
+    firstParam((await searchParams)[PHOTO_FLASH_PARAM]) === PHOTO_FLASH_VALUE;
   const item = await getItem(id);
   if (!item) notFound();
 
@@ -274,6 +290,7 @@ async function ItemDetail({ params }: { params: Promise<{ id: string }> }) {
               <ItemPhotoControls
                 itemId={item.id}
                 hasPhoto={Boolean(item.photoUrl)}
+                uploadedNotice={justUploadedPhoto}
               />
             )}
           </CardBody>
@@ -361,12 +378,14 @@ async function ItemDetail({ params }: { params: Promise<{ id: string }> }) {
 
 export default function ItemDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<SearchParams>;
 }) {
   return (
     <Suspense fallback={<DetailSkeleton />}>
-      <ItemDetail params={params} />
+      <ItemDetail params={params} searchParams={searchParams} />
     </Suspense>
   );
 }

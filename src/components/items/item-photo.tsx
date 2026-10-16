@@ -4,6 +4,7 @@ import { useActionState, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/card";
 import type { ActionState } from "@/lib/action-utils";
+import { PHOTO_UPLOADED_MESSAGE } from "@/lib/constants";
 import {
   removeItemPhotoAction,
   uploadItemPhotoAction,
@@ -20,13 +21,20 @@ const FILE_INPUT_CLASS =
  * Dipisah dari form edit supaya foto bisa diurus tanpa membuka dan menyimpan
  * ulang seluruh data barang: aksinya hanya menyentuh kolom `photoUrl`. Dipakai
  * juga sebagai jalur uji smoke — dua form terpisah, masing-masing satu tombol.
+ *
+ * Keterangan "foto berhasil diunggah" punya dua sumber: hasil aksi di komponen
+ * ini, atau `uploadedNotice` dari halaman detail (titipan URL setelah form
+ * barang disimpan).
  */
 export function ItemPhotoControls({
   itemId,
   hasPhoto,
+  uploadedNotice = false,
 }: {
   itemId: string;
   hasPhoto: boolean;
+  /** Baru kembali dari form barang yang menyertakan unggahan foto baru. */
+  uploadedNotice?: boolean;
 }) {
   const uploadFormRef = useRef<HTMLFormElement>(null);
   const [lastAction, setLastAction] = useState<"upload" | "remove">("upload");
@@ -47,10 +55,19 @@ export function ItemPhotoControls({
 
   const state = lastAction === "upload" ? uploadState : removeState;
 
+  // Pesan dari aksi yang baru dijalankan menang atas titipan dari URL: setelah
+  // pengguna menekan "Hapus foto", keterangan "berhasil diunggah" dari
+  // penyimpanan form tidak boleh masih terpampang.
+  const notice = state.message
+    ? { ok: state.ok, message: state.message }
+    : uploadedNotice
+      ? { ok: true, message: PHOTO_UPLOADED_MESSAGE }
+      : null;
+
   return (
     <div className="flex flex-col gap-3">
-      {state.message ? (
-        <Alert tone={state.ok ? "success" : "error"}>{state.message}</Alert>
+      {notice ? (
+        <Alert tone={notice.ok ? "success" : "error"}>{notice.message}</Alert>
       ) : null}
 
       <form

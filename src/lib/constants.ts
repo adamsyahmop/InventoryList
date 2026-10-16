@@ -181,6 +181,19 @@ export const PHOTO_MAX_BYTES = 5 * 1024 * 1024;
 export const PHOTO_URL_PREFIX = "/api/photos/";
 
 /**
+ * Keterangan setelah foto berhasil disimpan.
+ *
+ * Ada dua jalur menuju halaman detail dan keduanya harus memberi kabar yang
+ * sama: aksi unggah di kartu foto (pesannya dikirim lewat `ActionState`), dan
+ * form tambah/edit yang mengalihkan halaman. Pengalihan tidak bisa membawa
+ * state, jadi jalur kedua menitipkan penanda di URL
+ * (`/items/<id>?photo=uploaded`) yang dibaca halaman detail.
+ */
+export const PHOTO_UPLOADED_MESSAGE = "Foto barang berhasil diunggah.";
+export const PHOTO_FLASH_PARAM = "photo";
+export const PHOTO_FLASH_VALUE = "uploaded";
+
+/**
  * Ukuran berkas untuk pesan ke pengguna, mis. `3,4 MB` atau `720 KB`.
  *
  * Dipakai bersama oleh server (`src/lib/photos.ts`, pesan penolakan ukuran) dan

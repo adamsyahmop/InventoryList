@@ -2,7 +2,10 @@
 
 Terakhir diperbarui: 16 Oktober 2026 (sesi lanjutan — **foto barang** selesai
 end-to-end: unggah dari form barang & halaman detail, disajikan lewat route
-handler ber-sesi, berkas lama dibersihkan otomatis. Sebelumnya di sesi yang sama:
+handler ber-sesi, berkas lama dibersihkan otomatis, dan keterangan **"Foto
+barang berhasil diunggah."** muncul di kartu foto maupun setelah form barang
+disimpan (penanda `?photo=uploaded`; bagian foto `smoke.ps1` kini memilih sendiri
+barang ujinya). Sebelumnya di sesi yang sama:
 Tier A #1 & #2 tertutup (`searchKey` dihitung ulang saat data master berubah /
 barang pindah lokasi, dan hapus data master kini **ditolak** bila barisnya masih
 dipakai); sebelum itu: halaman Sampah & pemulihan barang, kode barang otomatis +
@@ -16,11 +19,12 @@ Identitas git repo ini: `adamsyahmop` / `adamsyahmop@users.noreply.github.com` (
 `npm run build` hijau (14/14 halaman statis + rute dinamis `/api/export` dan
 `/api/photos/[name]`), `npm run lint`
 hijau, `npx tsc --noEmit` hijau, `npm run seed` hijau, dan smoke test end-to-end
-**285 pemeriksaan, 0 gagal** (`exit 0`) — dijalankan terhadap build produksi
+**289 pemeriksaan, 0 gagal** (`exit 0`) — dijalankan terhadap build produksi
 (`npm run start -- -p 3100`), bukan server dev. Diverifikasi ulang 16 Oktober
 2026 setelah foto barang (Paket 5 #3) dan penolakan hapus data master
-(Paket 5 #2); sebelumnya 236 pemeriksaan, dan 205 pemeriksaan setelah perbaikan
-`searchKey` (Paket 5 #1).
+(Paket 5 #2); keterangan **"Foto barang berhasil diunggah."** menambah 4
+pemeriksaan lagi (289 dari 285), sebelumnya 236 pemeriksaan, dan 205 pemeriksaan
+setelah perbaikan `searchKey` (Paket 5 #1).
 
 > Baris uji manual `INV-2026-0011-ELE` (Charger Laptop Lenovo, dibuat 13 Oktober
 > 2026 lewat form barang baru) sudah dihapus dari `dev.db` — sebelumnya baris itu
@@ -1057,8 +1061,8 @@ masih dirujuk tidak pernah terhapus.
   Helper `Submit-Action` mendapat parameter opsional `$overrides` supaya skrip
   bisa mengisi field form data master yang terlihat (input teks/select) — form
   hapus tetap jalan tanpa itu karena field-nya `hidden`. Hasil saat itu: **236
-  pemeriksaan, 0 gagal**, `exit 0` (kini **285** setelah bagian foto barang
-  ditambahkan, Paket 5 #3).
+  pemeriksaan, 0 gagal**, `exit 0` (kini **289** setelah bagian foto barang
+  ditambahkan, Paket 5 #3, plus 4 pemeriksaan keterangan unggah).
 
 ### Catatan
 
@@ -1127,6 +1131,14 @@ berubah), dan `X-Content-Type-Options: nosniff`.
   halaman detail dengan tombol Unggah/Ganti/Hapus, dan aksinya **hanya menyentuh
   `photoUrl`** — foto bisa diurus tanpa membuka (dan menyimpan ulang) seluruh data
   barang.
+- Keterangan **"Foto barang berhasil diunggah."** (`PHOTO_UPLOADED_MESSAGE` di
+  `src/lib/constants.ts`, dipakai klien & server) muncul di kartu itu: dari hasil
+  aksi unggah langsung, atau sebagai **titipan URL** `?photo=uploaded` yang
+  dibawa pengalihan form tambah/edit — pengalihan halaman tidak bisa membawa
+  state, jadi penandanya ditulis di `redirect()` dan dibaca halaman detail
+  (`firstParam`) lalu diteruskan sebagai prop `uploadedNotice`. Pesan hasil aksi
+  **selalu menang** atas titipan itu, sehingga keterangan itu tidak tertinggal
+  saat pengguna langsung menghapus fotonya.
 - Halaman detail menampilkan fotonya (klik → buka ukuran penuh) atau empty state
   "Belum ada foto"; tabel daftar barang menampilkan thumbnail 40 px di kolom nama.
 
@@ -1159,8 +1171,19 @@ bila penyimpanan gagal — supaya tidak ada berkas yatim.
   bukan lewat `StringBuilder`), helper baru `Get-Binary` (membaca berkas biner
   tanpa mengubahnya jadi teks) dan `Get-ItemFormValues` (membaca nilai field form
   edit dari HTML-nya sendiri lalu mengirim ulang apa adanya; checkbox sengaja
-  dilewati karena yang tidak dicentang memang tidak dikirim browser). Total:
-  **285 pemeriksaan, 0 gagal**, `exit 0`.
+  dilewati karena yang tidak dicentang memang tidak dikirim browser). Total saat
+  itu: **285 pemeriksaan, 0 gagal**, `exit 0`.
+- **Penjagaan permanen keterangan unggah** (lanjutan sesi yang sama, 4
+  pemeriksaan baru → **289**): pesan `Foto barang berhasil diunggah.` harus
+  muncul setelah unggah di kartu foto; pengalihan setelah form edit disimpan
+  **dengan** berkas harus berbunyi `/items/<id>?photo=uploaded` dan halaman
+  tujuan harus menampilkan pesan itu; sebaliknya simpan-ulang **tanpa** berkas
+  tidak boleh menandai unggahan, dan halaman detail biasa tidak boleh memuat
+  pesan itu (keterangan hanya muncul sebagai hasil aksi, bukan menempel terus).
+  Karena bagian foto kini memilih sendiri barang yang belum punya foto dari
+  daftar, bagian ini tetap jalan walau ada unggahan lewat UI di data dev (yang
+  menjadikan barang pertama sudah berfoto — kondisi yang memang terjadi di sesi
+  ini dan sempat membuat bagian foto gagal sebelum pemilihan itu dibuat).
 
 ### Catatan
 
@@ -1236,7 +1259,7 @@ bila penyimpanan gagal — supaya tidak ada berkas yatim.
   `items(setelah pulih)` dan `trash(setelah hapus lagi)` (×2) membaca halaman
   tepat sesudah aksi `Pulihkan`/`Hapus` dan belum melihat perubahannya.
   Mekanismenya belum ditelusuri sampai akar (kandidat: render/cache di dev),
-  tetapi jalur yang sama di server produksi **285/285 hijau** dan data di DB
+  tetapi jalur yang sama di server produksi **289/289 hijau** dan data di DB
   akhirnya benar — jadi jangan menyimpulkan regresi hanya dari hasil di dev.
 - **`searchKey` basi punya dua jalur, bukan satu.** Selain rename data master,
   memindahkan barang juga mengganti nama lokasi di dalam kunci. Keduanya sudah
@@ -1266,6 +1289,20 @@ bila penyimpanan gagal — supaya tidak ada berkas yatim.
   mengisi sebagian field saja, karena `updateItemAction` menulis semua kolom:
   field yang tidak ikut terkirim akan dikosongkan. Aksi yang berakhir `redirect()`
   dibalas **303**, bukan 200.
+- **Di dalam string PowerShell, `?` adalah bagian dari nama variabel.**
+  `"/items/$id?photo=uploaded"` **tidak** menghasilkan URL itu: `$id?photo` dibaca
+  sebagai satu nama variabel (tidak ada), sehingga stringnya rusak jadi
+  `/items/=uploaded` — tanpa error apa pun, hanya halaman 404 yang membingungkan.
+  Susun path ber-query lewat penggabungan (`"/items/$id" + '?photo=uploaded'`)
+  atau lekati dengan backtick. Ini sempat membuang waktu saat mendiagnosis
+  (tampak seperti bug PPR pada halaman detail, padahal skrip diagnostiknya yang
+  salah).
+- **Data dev dipakai bersama, jadi jangan mengandalkan kondisi awal barang.**
+  Bagian foto di `smoke.ps1` dulu menganggap barang pertama di daftar belum
+  berfoto; satu unggahan lewat UI sudah cukup mematahkan anggapan itu (terjadi di
+  sesi ini). Sekarang barang ujinya **dicari** dari daftar (barang pertama yang
+  halaman detailnya memuat `Belum ada foto`). Kalau bagian smoke lain nanti butuh
+  kondisi khusus, pilih datanya di skrip alih-alih berasumsi.
 
 ## Artefak
 

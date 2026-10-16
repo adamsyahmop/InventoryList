@@ -45,7 +45,7 @@ pesan error), semua halaman utama dengan cookie sesi, isi konten penting
 cabang/sumber/unit pengelola, ekspor Excel (berkas .xlsx diperiksa isinya lewat
 `System.IO.Compression`: nama sheet, format angka, dan tanggal asli Excel),
 **penolakan hapus data master yang masih dipakai**, **unggah & penyajian foto
-barang**, empty state filter, dan UI 404. Total **285 pemeriksaan**.
+barang**, empty state filter, dan UI 404. Total **289 pemeriksaan**.
 
 Bagian **SAMPAH** di skrip itu menguji soft delete secara end-to-end: barang
 terhapus tampil di `/items/terhapus` dan absen dari daftar aktif/ekspor Excel,
@@ -87,7 +87,12 @@ edit (berkas lama ikut dibuang) lalu **dipertahankan** saat form edit disimpan
 ulang tanpa berkas, dan terakhir penghapusan foto membuang berkasnya dari disk.
 Form edit dikirim ulang dengan nilai field yang dibaca dari HTML-nya sendiri
 (`Get-ItemFormValues`), jadi bagian ini sekaligus membuktikan menyimpan ulang
-**tidak menghapus** data barang.
+**tidak menghapus** data barang. Keterangan **"Foto barang berhasil diunggah."**
+juga ikut diperiksa: muncul setelah unggah dari kartu foto, muncul lagi di
+halaman detail setelah form disimpan dengan berkas baru (pengalihan membawa
+penanda `?photo=uploaded`), dan **tidak** muncul saat form disimpan ulang tanpa
+berkas. Barang ujinya dipilih skrip dari daftar barang (yang belum punya foto),
+jadi bagian ini tetap jalan walau data dev sudah berisi unggahan lewat UI.
 
 ```bash
 npm run build
@@ -116,7 +121,7 @@ konstanta `$secret` di `smoke.ps1` **harus sama** dengan `SESSION_SECRET` di
 > `npm run seed`, jadi hapus dulu barisnya (atau reset `dev.db` seperti di atas)
 > sebelum menyalahkan aplikasi. Per 16 Oktober 2026 baris uji
 > `INV-2026-0011-ELE` sudah dibersihkan, `dev.db` berisi 10 barang (9 aktif + 1
-> ter-soft-delete), dan hasilnya **285 pemeriksaan, 0 gagal** (16 Oktober 2026).
+> ter-soft-delete), dan hasilnya **289 pemeriksaan, 0 gagal** (16 Oktober 2026).
 
 > Foto barang disimpan sebagai **berkas** di `uploads/items`, di luar `public/`
 > dan di-gitignore (folder dibuat otomatis saat unggahan pertama). Isinya tidak
@@ -264,6 +269,12 @@ detail maupun dari form barang.
   yang aksinya hanya menyentuh `photoUrl`, dan daftar barang menampilkan
   thumbnail. Mengganti foto membuang berkas lama **setelah** database berhasil
   disimpan; menyimpan ulang form **tanpa** berkas mempertahankan foto lama.
+- Setelah unggahan tersimpan, pengguna mendapat keterangan **"Foto barang
+  berhasil diunggah."** — dari kartu foto (pesan hasil aksi) atau di halaman
+  detail setelah menyimpan form barang yang menyertakan foto (aksi mengalihkan
+  halaman, jadi penandanya dititipkan di URL `?photo=uploaded`). Menyimpan tanpa
+  berkas baru tidak memberi keterangan itu, dan pesan tidak menempel terus:
+  begitu pengguna menghapus fotonya, keterangan diganti pesan aksi terakhir.
 - Foto **tidak** ikut ekspor Excel, dan soft delete barang **tidak** menghapus
   berkasnya (barangnya masih bisa dipulihkan). Berkas hanya dibuang saat foto
   diganti atau dihapus.

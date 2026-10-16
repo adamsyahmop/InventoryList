@@ -11,7 +11,13 @@ import {
   type ActionState,
 } from "@/lib/action-utils";
 import { requireAuth } from "@/lib/auth";
-import { buildItemCode, itemCodeSequence } from "@/lib/constants";
+import {
+  PHOTO_FLASH_PARAM,
+  PHOTO_FLASH_VALUE,
+  PHOTO_UPLOADED_MESSAGE,
+  buildItemCode,
+  itemCodeSequence,
+} from "@/lib/constants";
 import {
   discardPhoto,
   deleteUploadedPhoto,
@@ -141,7 +147,14 @@ export async function createItemAction(
   }
 
   invalidateItemCaches();
-  redirect(`/items/${createdId}`);
+  // Form ini mengalihkan ke halaman detail, dan pengalihan tidak bisa membawa
+  // state: keterangan "foto berhasil diunggah" hanya dititipkan bila memang ada
+  // berkas baru, lalu dibaca halaman detail untuk ditampilkan di kartu foto.
+  redirect(
+    uploaded
+      ? `/items/${createdId}?${PHOTO_FLASH_PARAM}=${PHOTO_FLASH_VALUE}`
+      : `/items/${createdId}`,
+  );
 }
 
 export async function updateItemAction(
@@ -229,7 +242,12 @@ export async function updateItemAction(
   }
 
   invalidateItemCaches();
-  redirect(`/items/${id}`);
+  // Sama seperti form tambah: tanpa berkas baru tidak ada klaim unggahan.
+  redirect(
+    uploaded
+      ? `/items/${id}?${PHOTO_FLASH_PARAM}=${PHOTO_FLASH_VALUE}`
+      : `/items/${id}`,
+  );
 }
 
 /**
@@ -281,7 +299,7 @@ export async function uploadItemPhotoAction(
 
   await deleteUploadedPhoto(existing.photoUrl);
   invalidateItemCaches();
-  return { ok: true, message: "Foto barang tersimpan." };
+  return { ok: true, message: PHOTO_UPLOADED_MESSAGE };
 }
 
 /** Hapus foto barang beserta berkasnya. Tanpa foto = sudah sesuai tujuan. */

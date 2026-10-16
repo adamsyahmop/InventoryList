@@ -851,7 +851,8 @@ if ($trashId) {
 # adalah jalur nyatanya: unggah multipart berisi berkas biner lewat form di
 # halaman detail (tanpa JavaScript), penyajian kembali berkasnya, penolakan
 # berkas yang bukan gambar/terlalu besar, dan pembersihan saat foto dihapus.
-# Barang seed tidak punya foto, dan di akhir bagian ini fotonya dihapus lagi —
+# Barang ujinya dipilih di bawah (barang pertama yang belum punya foto), dan di
+# akhir bagian ini fotonya dihapus lagi —
 # jadi isi database & folder unggahan kembali seperti semula.
 [Console]::WriteLine('')
 [Console]::WriteLine('=== FOTO BARANG ===')
@@ -873,17 +874,32 @@ $bigBytes = New-Object byte[] (5 * 1024 * 1024 + 200000)
 $bigBytes[0] = 0xFF; $bigBytes[1] = 0xD8; $bigBytes[2] = 0xFF
 [IO.File]::WriteAllBytes($bigFile, $bigBytes)
 
-if ($itemId) {
-  HasText 'detail(foto)' $detail.Body 'Foto barang'
-  HasText 'detail(foto)' $detail.Body 'Belum ada foto'
-  HasText 'detail(foto)' $detail.Body 'Unggah foto'
-  # Tombol hapus hanya muncul kalau memang ada foto yang bisa dihapus.
-  HasText 'detail(foto)' $detail.Body 'Hapus foto' $false
+# Barang uji dipilih sendiri, tidak memakai `$itemId`: database dev dipakai
+# bersama, jadi begitu ada yang mengunggah foto lewat aplikasi barang pertama
+# sudah punya foto - sedangkan bagian ini justru butuh barang yang masih kosong.
+$photoItemId = ''
+$photoDetail = $null
+foreach ($candidate in [regex]::Matches($items.Body, 'href="/items/([A-Za-z0-9_-]{15,})"')) {
+  $candidateId = $candidate.Groups[1].Value
+  $candidateDetail = Hit "/items/$candidateId" $token
+  if ($candidateDetail.Body.Contains('Belum ada foto')) {
+    $photoItemId = $candidateId
+    $photoDetail = $candidateDetail
+    break
+  }
+}
 
-  $upload = Submit-Action "/items/$itemId" 'Unggah foto' $itemId $token @{} `
+if ($photoItemId) {
+  HasText 'detail(foto)' $photoDetail.Body 'Foto barang'
+  HasText 'detail(foto)' $photoDetail.Body 'Belum ada foto'
+  HasText 'detail(foto)' $photoDetail.Body 'Unggah foto'
+  # Tombol hapus hanya muncul kalau memang ada foto yang bisa dihapus.
+  HasText 'detail(foto)' $photoDetail.Body 'Hapus foto' $false
+
+  $upload = Submit-Action "/items/$photoItemId" 'Unggah foto' $photoItemId $token @{} `
     @{ photo = @{ Path = $photoFile; FileName = 'barang.jpg'; ContentType = 'image/jpeg' } }
   Check 'POST unggah foto status' $upload.Code 200
-  HasText 'POST unggah foto' $upload.Body 'Foto barang tersimpan.'
+  HasText 'POST unggah foto' $upload.Body 'Foto barang berhasil diunggah.'
 
   # Nama berkas dibuat server (UUID + ekstensi dari isi berkas), jadi tidak ada
   # bagian dari nama kiriman klien yang ikut tersimpan.
@@ -894,15 +910,17 @@ if ($itemId) {
     Check 'nama berkas foto terdeteksi' $false $true
   }
 
-  $detailAfterUpload = Hit "/items/$itemId" $token
+  $detailAfterUpload = Hit "/items/$photoItemId" $token
   HasText 'detail(setelah unggah)' $detailAfterUpload.Body 'Ganti foto'
   HasText 'detail(setelah unggah)' $detailAfterUpload.Body 'Hapus foto'
   HasText 'detail(setelah unggah)' $detailAfterUpload.Body 'Belum ada foto' $false
+  # Keterangan unggahan hanya muncul sebagai hasil aksi, bukan menempel terus.
+  HasText 'detail(tanpa titipan) tidak mengklaim unggahan' $detailAfterUpload.Body 'berhasil diunggah' $false
 
   # Daftar barang & form edit ikut menampilkan fotonya.
   $itemsAfterUpload = Hit '/items' $token
   HasText 'items(setelah unggah)' $itemsAfterUpload.Body '/api/photos/'
-  $editAfterUpload = Hit "/items/$itemId/edit" $token
+  $editAfterUpload = Hit "/items/$photoItemId/edit" $token
   HasText 'edit(setelah unggah)' $editAfterUpload.Body 'Foto barang'
   HasText 'edit(setelah unggah)' $editAfterUpload.Body 'Hapus foto yang tersimpan'
 
@@ -921,13 +939,13 @@ if ($itemId) {
   }
 
   # Berkas yang bukan gambar ditolak, dan foto lama tidak ikut hilang.
-  $notImage = Submit-Action "/items/$itemId" 'Ganti foto' $itemId $token @{} `
+  $notImage = Submit-Action "/items/$photoItemId" 'Ganti foto' $photoItemId $token @{} `
     @{ photo = @{ Path = $textFile; FileName = 'catatan.txt'; ContentType = 'text/plain' } }
   Check 'POST unggah non-gambar status' $notImage.Code 200
   HasText 'POST unggah non-gambar' $notImage.Body 'Berkas foto harus berupa gambar'
   HasText 'POST unggah non-gambar' $notImage.Body '/api/photos/'
 
-  $tooBig = Submit-Action "/items/$itemId" 'Ganti foto' $itemId $token @{} `
+  $tooBig = Submit-Action "/items/$photoItemId" 'Ganti foto' $photoItemId $token @{} `
     @{ photo = @{ Path = $bigFile; FileName = 'besar.jpg'; ContentType = 'image/jpeg' } }
   Check 'POST unggah terlalu besar status' $tooBig.Code 200
   HasText 'POST unggah terlalu besar' $tooBig.Body 'Ukuran foto maksimal 5 MB'
@@ -936,7 +954,7 @@ if ($itemId) {
   # Form edit punya banyak field wajib. Nilainya dibaca dari HTML form itu
   # sendiri lalu dikirim ulang apa adanya, sehingga menyimpan ulang TIDAK boleh
   # menghapus data barang — jalur ini sebelumnya tidak diuji sama sekali.
-  $formValues = Get-ItemFormValues (Hit "/items/$itemId/edit" $token).Body
+  $formValues = Get-ItemFormValues (Hit "/items/$photoItemId/edit" $token).Body
   Check 'field form edit terbaca' ($formValues.Count -gt 15) $true
 
   $labels = @('Kategori', 'Unit pengelola', 'Merek', 'Model / tipe', 'Nomor seri', 'Jumlah', 'Harga satuan', 'Tanggal beli', 'Lokasi', 'Dipegang oleh', 'Catatan')
@@ -944,11 +962,21 @@ if ($itemId) {
   foreach ($label in $labels) { $beforeEdit[$label] = Get-DetailValue $detailAfterUpload.Body $label }
 
   # Simpan ulang sambil mengganti foto: berkas lama harus ikut dibuang.
-  $editWithPhoto = Submit-Action "/items/$itemId/edit" 'Simpan Perubahan' $itemId $token $formValues `
+  $editWithPhoto = Submit-Action "/items/$photoItemId/edit" 'Simpan Perubahan' $photoItemId $token $formValues `
     @{ photo = @{ Path = $photoFile; FileName = 'barang.jpg'; ContentType = 'image/jpeg' } }
   Check 'POST form edit + foto status' $editWithPhoto.Code 303
+  # Pengalihan halaman tidak bisa membawa state, jadi keterangan "foto berhasil
+  # diunggah" dititipkan di URL dan dibaca halaman detail.
+  Check 'alih halaman edit menandai unggahan foto' ($editWithPhoto.Location -like '*photo=uploaded*') $true
+  # Path disusun lewat penggabungan string: di dalam string PowerShell,
+  # `$photoItemId?photo` dibaca sebagai nama variabel (`?` sah di nama variabel),
+  # sehingga URL-nya rusak tanpa pesan error.
+  # di dalam string yang dikutip.
+  $noticePath = "/items/$photoItemId" + '?photo=uploaded'
+  $detailWithNotice = Hit $noticePath $token
+  HasText 'detail(setelah simpan form + foto)' $detailWithNotice.Body 'Foto barang berhasil diunggah.'
 
-  $detailAfterEdit = Hit "/items/$itemId" $token
+  $detailAfterEdit = Hit "/items/$photoItemId" $token
   $newPhoto = [regex]::Match($detailAfterEdit.Body, '/api/photos/[0-9a-f-]{36}\.jpg').Value
   Check 'foto diganti lewat form edit' (($newPhoto -ne '') -and ($newPhoto -ne $photoPath)) $true
   if ($photoPath -and $newPhoto) {
@@ -959,21 +987,23 @@ if ($itemId) {
   }
 
   # Menyimpan ulang TANPA berkas harus mempertahankan foto yang sudah ada.
-  $editKeepPhoto = Submit-Action "/items/$itemId/edit" 'Simpan Perubahan' $itemId $token (Get-ItemFormValues (Hit "/items/$itemId/edit" $token).Body)
+  $editKeepPhoto = Submit-Action "/items/$photoItemId/edit" 'Simpan Perubahan' $photoItemId $token (Get-ItemFormValues (Hit "/items/$photoItemId/edit" $token).Body)
   Check 'POST form edit tanpa berkas status' $editKeepPhoto.Code 303
-  $detailAfterKeep = Hit "/items/$itemId" $token
+  # Menyimpan tanpa berkas baru tidak boleh mengaku-ngaku ada unggahan.
+  Check 'alih halaman tanpa berkas tidak menandai unggahan' ($editKeepPhoto.Location -like '*photo=uploaded*') $false
+  $detailAfterKeep = Hit "/items/$photoItemId" $token
   HasText 'foto bertahan saat simpan ulang' $detailAfterKeep.Body $newPhoto
   Check 'riwayat pergerakan tidak bertambah' (Get-MovementCount $detailAfterKeep.Body) (Get-MovementCount $detailAfterUpload.Body)
 
   # Hapus foto: kolom dikosongkan sekaligus berkasnya dibuang dari disk.
-  $removePhoto = Submit-Action "/items/$itemId" 'Hapus foto' $itemId $token
+  $removePhoto = Submit-Action "/items/$photoItemId" 'Hapus foto' $photoItemId $token
   Check 'POST hapus foto status' $removePhoto.Code 200
   HasText 'POST hapus foto' $removePhoto.Body 'Foto barang dihapus.'
   HasText 'detail(setelah hapus foto)' $removePhoto.Body 'Belum ada foto'
   HasText 'detail(setelah hapus foto)' $removePhoto.Body '/api/photos/' $false
   Check 'berkas foto dibuang dari disk' (Get-Binary $newPhoto $token).Code 404
 } else {
-  Check 'detail barang tersedia untuk uji foto' $false $true
+  Check 'detail barang tanpa foto tersedia untuk uji foto' $false $true
 }
 
 [Console]::WriteLine('')
