@@ -157,6 +157,19 @@ export function itemCodeSequence(code: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+/**
+ * Tahun dari kode `INV-<tahun>-<nomor>[-jenis]`, mis. `INV-2026-0001-LPT` → 2026.
+ * Mengembalikan `null` untuk kode yang tidak mengikuti pola tersebut (mis. kode
+ * lama yang diketik manual) supaya pemanggil bisa memutuskan sendiri cara
+ * menampungnya — lihat `groupItemsByCodeYear()` di `src/lib/excel.ts`.
+ */
+export function itemCodeYear(code: string): number | null {
+  const match = /^INV-(\d{4})\b/i.exec(code.trim());
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 /** Label jenis aset; nilai tak dikenal dikembalikan apa adanya (jadi terlihat). */
 export function itemTypeLabel(type: string | null | undefined): string | null {
   if (!type) return null;

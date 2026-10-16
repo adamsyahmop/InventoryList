@@ -42,12 +42,12 @@ async function DeletedItems() {
         <table className="w-full min-w-[56rem] text-sm">
           <thead className="border-b border-neutral-200 bg-neutral-50 text-left text-xs text-neutral-500 uppercase">
             <tr>
-              <th className="px-4 py-2.5 font-medium">Kode</th>
-              <th className="px-4 py-2.5 font-medium">Nama barang</th>
-              <th className="px-4 py-2.5 font-medium">Dihapus</th>
-              <th className="px-4 py-2.5 font-medium">Status terakhir</th>
-              <th className="px-4 py-2.5 text-right font-medium">Nilai</th>
-              <th className="px-4 py-2.5 text-right font-medium">Aksi</th>
+              <th scope="col" className="px-4 py-2.5 font-medium">Kode</th>
+              <th scope="col" className="px-4 py-2.5 font-medium">Nama barang</th>
+              <th scope="col" className="px-4 py-2.5 font-medium">Dihapus</th>
+              <th scope="col" className="px-4 py-2.5 font-medium">Status terakhir</th>
+              <th scope="col" className="px-4 py-2.5 text-right font-medium">Nilai</th>
+              <th scope="col" className="px-4 py-2.5 text-right font-medium">Aksi</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-100">

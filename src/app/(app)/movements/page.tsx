@@ -32,13 +32,13 @@ async function MovementsList() {
             <table className="w-full min-w-[56rem] text-sm">
               <thead className="border-b border-neutral-200 bg-neutral-50 text-left text-xs text-neutral-500 uppercase">
                 <tr>
-                  <th className="px-4 py-2.5 font-medium">Waktu</th>
-                  <th className="px-4 py-2.5 font-medium">Barang</th>
-                  <th className="px-4 py-2.5 font-medium">Dari</th>
-                  <th className="px-4 py-2.5 font-medium">Ke</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Jumlah</th>
-                  <th className="px-4 py-2.5 font-medium">Oleh</th>
-                  <th className="px-4 py-2.5 font-medium">Keterangan</th>
+                  <th scope="col" className="px-4 py-2.5 font-medium">Waktu</th>
+                  <th scope="col" className="px-4 py-2.5 font-medium">Barang</th>
+                  <th scope="col" className="px-4 py-2.5 font-medium">Dari</th>
+                  <th scope="col" className="px-4 py-2.5 font-medium">Ke</th>
+                  <th scope="col" className="px-4 py-2.5 text-right font-medium">Jumlah</th>
+                  <th scope="col" className="px-4 py-2.5 font-medium">Oleh</th>
+                  <th scope="col" className="px-4 py-2.5 font-medium">Keterangan</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100">

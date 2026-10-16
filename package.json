@@ -7,12 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "rebuild-search-keys": "tsx scripts/rebuild-search-keys.ts"
   },
   "dependencies": {
     "@prisma/adapter-better-sqlite3": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "better-sqlite3": "^13.0.3",
+    "exceljs": "^4.4.0",
     "next": "16.4.0",
     "prisma": "^7.10.0",
     "qrcode": "^1.5.4",

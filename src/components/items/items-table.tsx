@@ -28,16 +28,16 @@ export function ItemsTable({ items }: { items: ItemWithRelations[] }) {
       <table className="w-full min-w-[72rem] text-sm">
         <thead className="border-b border-neutral-200 bg-neutral-50 text-left text-xs text-neutral-500 uppercase">
           <tr>
-            <th className="px-4 py-2.5 font-medium">Kode</th>
-            <th className="px-4 py-2.5 font-medium">Nama barang</th>
-            <th className="px-4 py-2.5 font-medium">Kategori</th>
-            <th className="px-4 py-2.5 font-medium">Unit pengelola</th>
-            <th className="px-4 py-2.5 font-medium">Lokasi / cabang</th>
-            <th className="px-4 py-2.5 font-medium">Sumber</th>
-            <th className="px-4 py-2.5 font-medium">Tgl beli</th>
-            <th className="px-4 py-2.5 text-right font-medium">Harga</th>
-            <th className="px-4 py-2.5 font-medium">Kondisi</th>
-            <th className="px-4 py-2.5 font-medium">Status</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Kode</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Nama barang</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Kategori</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Unit pengelola</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Lokasi / cabang</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Sumber</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Tgl beli</th>
+            <th scope="col" className="px-4 py-2.5 text-right font-medium">Harga</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Kondisi</th>
+            <th scope="col" className="px-4 py-2.5 font-medium">Status</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-neutral-100">

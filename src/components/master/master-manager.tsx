@@ -32,15 +32,23 @@ export type MasterAction = (
   formData: FormData,
 ) => Promise<ActionState>;
 
-/** Tombol hapus per baris; tiap baris punya state aksinya sendiri. */
-function RowDeleteButton({
-  id,
-  label,
+/**
+ * Satu baris master: label, tombol Edit, dan tombol Hapus.
+ *
+ * State aksi hapus diletakkan di sini (bukan di `MasterManager`) supaya tiap
+ * baris punya state sendiri, sekaligus pesannya bisa ditampilkan selebar baris.
+ * Pesan penolakan harus terlihat: `delete*Action` menolak menghapus data master
+ * yang masih dipakai, dan tanpa teks yang terbaca penolakan itu tampak seperti
+ * tombol yang tidak bekerja.
+ */
+function MasterRowItem({
+  row,
   deleteAction,
+  onEdit,
 }: {
-  id: string;
-  label: string;
+  row: MasterRow;
   deleteAction: MasterAction;
+  onEdit: (row: MasterRow) => void;
 }) {
   const [state, formAction, isPending] = useActionState<ActionState, FormData>(
     deleteAction,
@@ -48,24 +56,52 @@ function RowDeleteButton({
   );
 
   return (
-    <form
-      action={formAction}
-      onSubmit={(event) => {
-        if (!window.confirm(`Hapus "${label}"?`)) event.preventDefault();
-      }}
-    >
-      <input type="hidden" name="id" value={id} />
-      <Button
-        type="submit"
-        variant="ghost"
-        size="sm"
-        disabled={isPending}
-        title={state.message ?? undefined}
-        className="text-red-600 hover:bg-red-50"
-      >
-        {isPending ? "…" : "Hapus"}
-      </Button>
-    </form>
+    <li className="py-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-neutral-800">
+            {row.label}
+          </p>
+          {row.meta ? (
+            <p className="truncate text-xs text-neutral-400">{row.meta}</p>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => onEdit(row)}
+          >
+            Edit
+          </Button>
+          <form
+            action={formAction}
+            onSubmit={(event) => {
+              if (!window.confirm(`Hapus "${row.label}"?`)) event.preventDefault();
+            }}
+          >
+            <input type="hidden" name="id" value={row.id} />
+            <Button
+              type="submit"
+              variant="ghost"
+              size="sm"
+              disabled={isPending}
+              className="text-red-600 hover:bg-red-50"
+            >
+              {isPending ? "…" : "Hapus"}
+            </Button>
+          </form>
+        </div>
+      </div>
+      {state.message && !state.ok ? (
+        <div className="mt-2">
+          <Alert tone="error">
+            <span className="text-xs">{state.message}</span>
+          </Alert>
+        </div>
+      ) : null}
+    </li>
   );
 }
 
@@ -187,34 +223,12 @@ export function MasterManager({
         ) : (
           <ul className="divide-y divide-neutral-100 border-t border-neutral-200">
             {rows.map((row) => (
-              <li
+              <MasterRowItem
                 key={row.id}
-                className="flex items-center justify-between gap-3 py-2"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-neutral-800">
-                    {row.label}
-                  </p>
-                  {row.meta ? (
-                    <p className="truncate text-xs text-neutral-400">{row.meta}</p>
-                  ) : null}
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setEditing(row)}
-                  >
-                    Edit
-                  </Button>
-                  <RowDeleteButton
-                    id={row.id}
-                    label={row.label}
-                    deleteAction={deleteAction}
-                  />
-                </div>
-              </li>
+                row={row}
+                deleteAction={deleteAction}
+                onEdit={setEditing}
+              />
             ))}
           </ul>
         )}

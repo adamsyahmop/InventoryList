@@ -271,13 +271,13 @@ async function ItemDetail({ params }: { params: Promise<{ id: string }> }) {
               <table className="w-full min-w-[52rem] text-sm">
                 <thead className="border-b border-neutral-200 bg-neutral-50 text-left text-xs text-neutral-500 uppercase">
                   <tr>
-                    <th className="px-4 py-2.5 font-medium">Waktu</th>
-                    <th className="px-4 py-2.5 font-medium">Dari lokasi</th>
-                    <th className="px-4 py-2.5 font-medium">Ke lokasi</th>
-                    <th className="px-4 py-2.5 font-medium">Perubahan status</th>
-                    <th className="px-4 py-2.5 text-right font-medium">Jumlah</th>
-                    <th className="px-4 py-2.5 font-medium">Oleh</th>
-                    <th className="px-4 py-2.5 font-medium">Keterangan</th>
+                    <th scope="col" className="px-4 py-2.5 font-medium">Waktu</th>
+                    <th scope="col" className="px-4 py-2.5 font-medium">Dari lokasi</th>
+                    <th scope="col" className="px-4 py-2.5 font-medium">Ke lokasi</th>
+                    <th scope="col" className="px-4 py-2.5 font-medium">Perubahan status</th>
+                    <th scope="col" className="px-4 py-2.5 text-right font-medium">Jumlah</th>
+                    <th scope="col" className="px-4 py-2.5 font-medium">Oleh</th>
+                    <th scope="col" className="px-4 py-2.5 font-medium">Keterangan</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100">

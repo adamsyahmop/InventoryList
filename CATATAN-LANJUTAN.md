@@ -1,8 +1,10 @@
 # Catatan Lanjutan — Inventory List
 
-Terakhir diperbarui: 12 Oktober 2026 (sesi lanjutan — halaman Sampah & pemulihan
-barang, dilanjutkan kode barang otomatis + QR & label cetak, lalu fixture seed
-dimigrasikan ke format kode bersuffix).
+Terakhir diperbarui: 16 Oktober 2026 (sesi lanjutan — Tier A #1 & #2 tertutup:
+`searchKey` dihitung ulang saat data master berubah / barang pindah lokasi, dan
+hapus data master kini **ditolak** bila barisnya masih dipakai; sebelumnya:
+halaman Sampah & pemulihan barang, kode barang otomatis + QR & label cetak,
+fixture seed bermigrasi ke format kode bersuffix).
 Stack: Next.js 16.4.0 (Turbopack, Cache Components aktif) + Prisma 7.10.0 + SQLite (`dev.db`).
 Repositori: https://github.com/adamsyahmop/InventoryList (branch `main`, commit awal `823b402`).
 Identitas git repo ini: `adamsyahmop` / `adamsyahmop@users.noreply.github.com` (noreply, agar email asli tidak terekspos); `.env.example` di-*unignore* lewat `!.env.example` supaya template tetap ikut ter-commit.
@@ -11,7 +13,16 @@ Identitas git repo ini: `adamsyahmop` / `adamsyahmop@users.noreply.github.com` (
 
 `npm run build` hijau (14/14 halaman), `npm run lint` hijau, `npx tsc --noEmit`
 hijau, `npm run seed` hijau, dan smoke test end-to-end
-**180 pemeriksaan, 0 gagal**.
+**236 pemeriksaan, 0 gagal** (`exit 0`) — dijalankan terhadap build produksi
+(`npm run start -- -p 3100`), bukan server dev. Diverifikasi ulang 16 Oktober
+2026 setelah penolakan hapus data master (Paket 5 #2); sebelumnya 205
+pemeriksaan setelah perbaikan `searchKey` (Paket 5 #1).
+
+> Baris uji manual `INV-2026-0011-ELE` (Charger Laptop Lenovo, dibuat 13 Oktober
+> 2026 lewat form barang baru) sudah dihapus dari `dev.db` — sebelumnya baris itu
+> membuat 4 pemeriksaan angka dashboard gagal. DB kini persis data seed: 9 barang
+> aktif + 1 barang ter-soft-delete, dan movement yatim 0 (pergerakan barang itu
+> ikut terhapus lewat `onDelete: Cascade`).
 
 ## Paket 4 — Kode barang otomatis + QR & label cetak (sesi 12 Oktober 2026)
 
@@ -604,8 +615,12 @@ Konten yang sudah dipastikan ada:
 - `/movements`: `Riwayat pergerakan terbaru`, `catatan terakhir`, `Gudang A`.
 - `/master`: `MasterManager`, `Unit kerja pemilik aset`, `Kode cabang`,
   `Cabang Bandung (BDG)`.
-- `/api/export`: `text/csv; charset=utf-8`, diawali `Kode,Nama`, header memuat
-  `Cabang Lokasi,Sumber Perolehan,Cabang Pembeli,Pemilik Aset,Tanggal Dibuang,Alasan Dibuang,Tanggal Jual,Harga Jual`.
+- `/api/export`: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+  (`inventaris-<YYYY-MM-DD>.xlsx`, arsip ZIP berawalan `PK`), sheet `Ringkasan`
+  berisi baris TOTAL + catatan, lalu sheet `2026`; kolom memuat `Unit Pengelola`,
+  `Cabang Lokasi`, `Sumber Perolehan`, `Cabang Pembeli`, `Pemilik Aset`,
+  `Tanggal Dibuang`, `Alasan Dibuang`, `Tanggal Jual`, `Harga Jual`, dan
+  `styles.xml` memuat `"Rp"#,##0` serta `dd/mm/yyyy`.
 
 Catatan: token HMAC di `smoke.ps1` memakai secret literal
 `dev-only-insecure-secret-change-me`. **Kalau `SESSION_SECRET` di
@@ -760,13 +775,288 @@ berubah), dan `smoke.ps1` **117 pemeriksaan, 0 gagal** (`exit 0`).
   dengan apa yang dilihat pengguna.
 - **`/movements` berpaginasi + filter** (per barang, rentang tanggal, jenis
   perubahan) — sekarang hanya "N catatan terakhir" tanpa kontrol apa pun.
-- **`error.tsx` / `global-error.tsx`.** Belum ada boundary error sama sekali;
-  kegagalan Prisma tampil sebagai overlay dev / halaman bawaan di production.
-  Pola yang sudah ada: `not-found.tsx` + `EmptyState` bisa ditiru.
+- ✅ **SELESAI (belum di-commit) — `error.tsx` / `global-error.tsx`.** Tiga
+  boundary sudah ada: `src/app/error.tsx` (segmen akar, termasuk `/login`),
+  `src/app/(app)/error.tsx` (di dalam rangka aplikasi supaya navbar tidak ikut
+  hilang), dan `src/app/global-error.tsx` (menyediakan `<html>`/`<body>` sendiri
+  plus inline style, karena `globals.css` diimpor oleh layout yang sedang
+  gagal). Isi bersamanya di `src/components/ui/error-fallback.tsx` dan memakai
+  prop `retry` — stabil sejak Next **16.3.0**
+  (`node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/error.md:331`),
+  sedangkan versi terpasang 16.4.0. Catatan: ketiganya **belum** diuji
+  `smoke.ps1` (butuh cara memicu kegagalan render secara terkendali).
 - **Multi-user & peran.** Identitas pelaku masih literal: `movedBy: "admin"`
-  (`src/lib/actions/items.ts:57`, `:119`, `:185`, `:246`) dan
-  `createdBy: "admin"` (`:45`; sisi seed memakai `"seed"`). Sebelum ada model
+  (`src/lib/actions/items.ts:79`, `:142`, `:189`, `:241`, `:302`) dan
+  `createdBy: "admin"` (`:67`; sisi seed memakai `"seed"`). Sebelum ada model
   `User`, kumpulkan dulu semuanya jadi satu konstanta supaya satu titik ubah.
+
+## Temuan audit 15 Oktober 2026 — prioritas perbaikan
+
+Hasil audit ulang **dari kode, bukan dari ingatan**, setelah Paket 4. Tier A
+berisi bug nyata (dua di antaranya sudah dibuktikan langsung ke `dev.db`),
+Tier B fitur yang belum ada, Tier C rekayasa/operasional. Hal yang sudah
+tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
+**dirujuk**, tidak diulang.
+
+> Nomor baris yang disebut di bawah (`master.ts:69`, `schema.prisma:128`, dst.)
+> adalah posisi **saat audit**, sebelum Paket 5 #1 & #2 — setelah perbaikan,
+> nomornya bergeser. Pakai nama fungsi/field-nya, bukan nomor barisnya.
+
+> Status 16 Oktober 2026: Tier A **butir 1 dan 2 sudah selesai** — lihat "Paket
+> 5 #1" dan "Paket 5 #2" di bawah. Butir 3–5 masih terbuka.
+
+### Tier A — bug nyata
+
+1. **`searchKey` basi setelah rename data master (TERBUKTI).**
+   `searchKey` adalah snapshot teks yang ikut memuat **nama relasi**
+   (`src/lib/action-utils.ts:46-54`, dibangun `buildItemSearchKey` saat barang
+   disimpan), tetapi `src/lib/actions/master.ts` **tidak pernah** memanggil
+   `prisma.item.updateMany`: semua `save*Action` hanya `updateTag(...)`
+   (baris 26-29).
+   Bukti live: kategori `Elektronik` di-rename ke `Elektronik-ZZ` (meniru
+   `saveCategoryAction`). Dari 7 barang berkategori itu, `searchKey`
+   **semuanya masih memuat `elektronik`** dan **tidak satu pun memuat
+   `elektronik-zz`** → `/items?q=elektronik-zz` kosong, sementara
+   `?q=elektronik` masih menemukan barang yang kategorinya sudah berganti nama.
+   Perbaikan: saat menyimpan master dan `name` berubah, hitung ulang
+   `searchKey` barang terkait (pakai `buildItemSearchKey`) lalu
+   `updateTag(CACHE_TAGS.items)`.
+   > ✅ **SELESAI 15 Oktober 2026** — lihat "Paket 5 #1" di bawah. Perbaikan
+   > akhirnya memakai `refreshItemSearchKeys()` (hitung dari **baris database**),
+   > bukan `buildItemSearchKey()` yang hanya menerima input form.
+2. **Hapus data master tanpa penjagaan → referensi jadi `null` diam-diam.**
+   Enam aksi hapus langsung `prisma.*.delete`: `deleteBranchAction`
+   (`master.ts:69`), `deleteDepartmentAction` (`:128`),
+   `deleteCategoryAction` (`:184`), `deleteBrandAction` (`:236`),
+   `deleteLocationAction` (`:295`), `deleteSupplierAction` (`:354`). Semua
+   relasi master memakai `onDelete: SetNull`
+   (`schema.prisma:128,189,191,193,195,200,206,209`), jadi menghapus satu
+   kategori membuat `categoryId` 7 barang menjadi `null` **tanpa error** →
+   `describeError()` tidak pernah jalan dan pengguna tidak diberi tahu apa pun.
+   Berlipat dengan temuan (1): `searchKey` barang masih memuat nama kategori
+   yang sudah lenyap. Untuk lokasi, `ItemMovement.fromLocationId` /
+   `toLocationId` (`:254-255`) ikut `null` → **jejak audit kehilangan lokasi**.
+   Perbaikan: hitung pemakaian (`prisma.item.count`) sebelum hapus, tolak
+   dengan pesan "masih dipakai oleh N barang", atau minta konfirmasi eksplisit
+   + rapikan `searchKey` sesudahnya.
+   > ✅ **SELESAI 15–16 Oktober 2026** — lihat "Paket 5 #2" di bawah. Opsi yang
+   > dipilih: **tolak penghapusan** sambil menampilkan jumlah pemakaian. Karena
+   > baris yang masih dirujuk tidak pernah terhapus, `searchKey` tidak mungkin
+   > basi dari jalur ini, jadi `refreshItemSearchKeysByIds()` **tidak** dipakai
+   > `delete*Action` (hanya jalur pindah lokasi).
+3. **Rahasia punya fallback hardcoded.** `src/lib/session.ts:15`
+   (`SESSION_SECRET ?? "dev-only-insecure-secret-change-me"`) dan `:67`
+   (`APP_PASSWORD ?? "admin"`). Bila `.env` tidak terpasang di server produksi,
+   penanda tangan cookie sesi memakai nilai yang ada di repo → siapa pun yang
+   bisa membaca repo dapat **memalsukan cookie sesi**, dan password login
+   menjadi `admin`. Perbaikan: gagal-cepat (`throw`) saat
+   `NODE_ENV === "production"` dan env kosong/terlalu pendek.
+4. **Login tanpa pembatasan percobaan.** `src/lib/actions/auth.ts:28` hanya
+   membandingkan password; satu password dipakai bersama, tanpa throttle atau
+   lockout → brute force leluasa. Perbaikan: hitung percobaan gagal per IP per
+   jendela waktu, balas lambat atau kunci sementara.
+5. **`Item.photoUrl` praktis mati.** Field, validasi, dan input teks ada
+   (`src/components/items/item-form.tsx`), tetapi nilainya tidak dirender di
+   mana pun lagi: bukan di `/items/[id]`, bukan di tabel daftar, bukan di
+   ekspor; tidak ada unggah berkas. Perlu keputusan produk: cukup URL lalu
+   tampilkan di halaman detail (+ kolom Excel), atau lengkapi sampai unggah.
+
+### Tier B — fitur bernilai harian
+
+- **Import `.xlsx`.** Belum ada sama sekali — input barang masih satu per satu.
+  Kolom ekspor di `src/lib/excel.ts` bisa dipakai sebagai format acuan.
+- **Cetak label massal** → rujuk butir 5 "TODO besok" di atas.
+- **Ekspor mengikuti filter** dan **`/movements` paginasi + filter** → rujuk
+  "Kandidat paket berikutnya" di atas.
+- **Stock opname** (pengecekan fisik berkala + catat selisih temuan) — belum
+  tercatat di catatan mana pun, padahal ini alur wajib inventaris dan QR-nya
+  sudah siap dipakai.
+- **Penyusutan & laporan "hasil penjualan vs nilai buku"** → rujuk "Sisa ide".
+- **Multi-user & peran** → rujuk "Kandidat paket berikutnya".
+
+### Tier C — rekayasa & operasional
+
+- **Belum ada unit test.** `smoke.ps1` bagus tetapi butuh server hidup + seed
+  dan hanya menguji HTTP; fungsi murni (`itemCodeYear`, `format*`,
+  `buildInventoryWorkbook`) layak diuji Vitest + skrip `npm test`.
+- **Belum ada CI.** Perlu alur `tsc --noEmit` → `eslint` → `build` →
+  `smoke.ps1` (dengan `npm run seed`) supaya regresi seperti
+  `runtime = "nodejs"` tidak terulang tanpa terasa.
+- **Arah deploy belum konsisten.** `README.md` masih memuat boilerplate
+  "Deploy on Vercel", padahal **SQLite + `better-sqlite3` (native) tidak bisa
+  jalan di Vercel** (filesystem read-only/ephemeral). Ini keputusan arsitektur
+  yang lebih mendesak daripada fitur: pindah ke PostgreSQL (skema sudah
+  portabel; catatan migrasinya di `prisma/schema.prisma:4-7`) atau ke
+  VPS/Docker.
+- **Belum ada backup/restore.** `dev.db` sudah di-`.gitignore` (benar), tetapi
+  produksi perlu `VACUUM INTO` terjadwal + prosedur restore tertulis.
+- **Pekerjaan sesi ini sudah di-commit** bersama paket yang masih tertahan
+  (ekspor `.xlsx`, error boundary berlapis, `scripts/rebuild-search-keys.ts`,
+  Paket 5 #1 & #2). `scripts/` kini hanya berisi `rebuild-search-keys.ts` — semua
+  `tmp-*.ts` / `tmp-*.ps1` sudah dihapus, dan `dev-server*.log` / `prod-*.log` /
+  `/scripts/tmp-*` masuk `.gitignore` supaya artefak sesi lokal tidak ikut
+  terbawa. (Hash tidak dicatat di sini supaya tidak basi saat commit di-amend —
+  lihat `git log`.)
+
+### Urutan yang disarankan
+
+1. ✅ Tier A butir 1 (Paket 5 #1) dan butir 2 (Paket 5 #2) **selesai**.
+   Berikutnya butir 3 (rahasia tanpa fallback hardcoded), lalu butir 4–5.
+2. Tier B: import Excel → ekspor ikut filter → `/movements` filter+paginasi →
+   label massal.
+3. Tier C: target DB produksi → backup → CI → unit test.
+
+## Paket 5 #1 — `searchKey` tidak lagi basi (sesi 15 Oktober 2026)
+
+Menutup Tier A #1 dari audit di atas. `searchKey` adalah *snapshot teks* yang
+ikut memuat **nama relasi**, jadi setiap perubahan nama/kode data master — dan
+setiap perpindahan barang ke lokasi lain — meninggalkan teks lama di kunci
+pencarian: `?q=` masih menemukan barang lewat nama yang sudah tidak dipakai,
+dan **gagal** menemukannya lewat nama yang baru.
+
+### Akar masalah
+
+`buildItemSearchKey()` hanya dipanggil saat barang disimpan, sedangkan
+`src/lib/actions/master.ts` tidak pernah menyentuh `Item` sama sekali — keenam
+`save*Action` hanya memanggil `updateTag(...)`. Bug kelas yang sama juga ada di
+`createMovementAction`: memindahkan barang mengubah nama lokasi di `searchKey`,
+tetapi kuncinya tidak dihitung ulang.
+
+### Perbaikan
+
+- `src/lib/action-utils.ts`
+  - `ItemSearchKeyFields` + `composeItemSearchKey()` — satu tempat yang memegang
+    **urutan kanonik** field `searchKey`. `buildItemSearchKey()` (jalur input
+    form) kini mendelegasikan ke sini, jadi urutannya tidak digandakan di dua
+    tempat dan kunci bisa dihitung dari **baris database**, bukan hanya dari
+    form.
+  - `SEARCH_KEY_RELATION_SELECT` — relasi yang namanya ikut tersimpan di kunci.
+  - `refreshItemSearchKeys(where)` → jumlah barang yang diperbarui;
+    `refreshItemSearchKeysByIds(ids)` → versi untuk id yang sudah dikumpulkan
+    (dipakai sesudah baris master dihapus, lihat catatan di bawah). Keduanya
+    menulis dalam satu `$transaction`.
+- `src/lib/actions/master.ts` — keenam `save*Action` kini `findUniqueOrThrow`
+  baris sebelumnya dan **hanya** memanggil `refreshItemSearchKeys()` bila field
+  yang relevan benar-benar berubah: cabang (`name`/`code`; dicocokkan lewat
+  `sourceBranchId`, `ownerBranchId`, dan `location.is.branchId`), unit pengelola
+  (`name`/`code`), kategori (`name`), merek (`name`), lokasi (`name` atau
+  `branchId`), supplier (`name`). Kalau tidak ada yang berubah, tidak ada tulis
+  tambahan sama sekali.
+- `src/lib/actions/items.ts` — `createMovementAction` memanggil
+  `refreshItemSearchKeysByIds([itemId])` setelah transaksi bila
+  `nextLocationId !== item.locationId`.
+- `scripts/rebuild-search-keys.ts` + `npm run rebuild-search-keys` — backfill
+  idempoten untuk database lama (`refreshItemSearchKeys({})`). Barang yang
+  kuncinya sudah basi tidak akan pernah tertolong oleh perbaikan di atas, jadi
+  jalur ini perlu ada.
+
+### Bukti (dijalankan langsung, bukan dari ingatan)
+
+- `npx tsc --noEmit`, `npm run lint`, dan `npm run build` hijau.
+- Backfill: perbandingan kunci tersimpan vs. hasil hitung ulang **selisih 0**;
+  satu-satunya delta yang muncul adalah token kode unit pengelola yang memang
+  tidak diisi seed (`it`/`ga`).
+- **Rename:** kategori `Elektronik` → `Elektronik-ZZ` lewat POST asli ke
+  `/master` (multipart, tanpa JavaScript). Ketujuh barang berkategori itu
+  kuncinya berubah memuat `elektronik-zz`, dan `/items?q=elektronik-zz`
+  mengembalikan hasil — sebelumnya kosong. Nama dikembalikan, selisih kembali 0,
+  tidak ada sisa `elektronik-zz`. Diulang juga di server produksi (port 3100).
+- **Pindah lokasi:** `INV-2026-0002-MON` dipindah `Gudang A` → `Ruang Meeting`.
+  Kuncinya kehilangan `gudang a` dan mendapat `ruang meeting`;
+  `/items?q=ruang%20meeting` menemukannya, `?q=gudang%20a` tidak. Dipindahkan
+  kembali dan movement ujinya dihapus — DB kembali `items=10, aktif=9`,
+  `movements=29`. Angka pergerakan naik **2 setiap kali `smoke.ps1` dijalankan**
+  (dua baris audit hapus/pulih), jadi di akhir sesi ini nilainya 37 — itu wajar,
+  bukan sisa data uji.
+- **Smoke penuh:** `npm run build` → `npm run start -- -p 3100` → `smoke.ps1`
+  → **205 pemeriksaan, 0 gagal**, `exit 0`.
+
+### Catatan penting
+
+- Hapus data master **tidak** memakai `refreshItemSearchKeysByIds()`: sejak
+  Paket 5 #2 penghapusan ditolak selama barisnya masih dipakai, jadi tidak ada
+  barang yang perlu dirapikan sesudah hapus. Helper `ByIds` tetap dipakai jalur
+  pindah lokasi (`createMovementAction`).
+
+## Paket 5 #2 — hapus data master ditolak bila masih dipakai (sesi 15–16 Oktober 2026)
+
+Menutup Tier A #2 dari audit di atas. Keenam `delete*Action` di
+`src/lib/actions/master.ts` sebelumnya langsung memanggil `prisma.*.delete`.
+Semua relasi master memakai `onDelete: SetNull` (`schema.prisma`), jadi
+penghapusan **selalu berhasil** dan yang terjadi adalah kehilangan referensi
+secara diam-diam: `describeError()` tidak pernah jalan dan pengguna tidak
+menerima pesan apa pun.
+
+### Keputusan produk
+
+Audit menyediakan dua opsi: (a) tolak penghapusan sambil menampilkan jumlah
+pemakaian, atau (b) minta konfirmasi eksplisit lalu rapikan `searchKey`
+sesudahnya. Yang dipilih **(a) tolak**. Alasannya: jumlah pemakaian mudah
+dihitung dan bisa ditampilkan apa adanya, sedangkan opsi (b) membuat satu tombol
+"Hapus" punya dua arti berbeda tergantung konfirmasi — di jalur tanpa JavaScript
+(yang justru diuji smoke) perbedaan itu tidak bisa dibedakan. Konsekuensi
+penting: `searchKey` **tidak mungkin** basi dari jalur ini, karena baris yang
+masih dirujuk tidak pernah terhapus.
+
+### Perbaikan
+
+- `src/lib/actions/master.ts`
+  - `describeMasterUsage(subject, usage)` — satu tempat yang menyusun pesan
+    penolakan (`Kategori ini masih dipakai oleh 7 barang. Pindahkan atau ganti
+    referensinya dulu sebelum menghapus.`); mengembalikan `null` bila tidak ada
+    pemakaian. Bagian yang bernilai nol tidak ikut dicetak, dan nasihatnya
+    berbeda untuk lokasi yang muncul di riwayat pergerakan (`Riwayat pergerakan
+    tidak boleh kehilangan lokasi.`).
+  - Tiap `delete*Action` menghitung pemakaian **dan** menghapus di dalam satu
+    `prisma.$transaction`, supaya tidak ada celah antara "masih kosong" dan
+    "benar-benar dihapus". Pemakaian yang dihitung: cabang (`sourceBranchId`,
+    `ownerBranchId`, atau `location.branchId` miliknya — plus jumlah lokasinya),
+    unit pengelola / kategori / merek / supplier (`item.count`), lokasi
+    (`item.count` + `itemMovement.count` pada `fromLocationId`/`toLocationId`).
+  - Bila ditolak, action mengembalikan `{ ok: false, message }` **sebelum**
+    `invalidateMasterCaches()` dipanggil, jadi tidak ada cache yang dibuang untuk
+    penghapusan yang tidak terjadi.
+- `src/components/master/master-manager.tsx` — pesan penolakan tampil sebagai
+  `<Alert tone="error">` (`role="alert"`) di baris yang gagal, bukan toast atau
+  console: pengguna melihat **baris mana** yang ditolak dan berapa pemakaiannya.
+
+### Bukti (dijalankan langsung, bukan dari ingatan)
+
+- `npx tsc --noEmit`, `npm run lint`, `npm run build` hijau.
+- **E2E langsung ke `dev.db` + HTTP** (build produksi port 3100, multipart form
+  server action tanpa JavaScript): **20 baris master yang terpakai** di data seed
+  di-POST ke form Hapus-nya dan semuanya ditolak dengan pesan **persis** sesuai
+  hitungan, mis. `Elektronik` → `Kategori ini masih dipakai oleh 7 barang.`,
+  `Gudang A` → `Lokasi ini masih dipakai oleh 5 barang, 36 pergerakan. Riwayat
+  pergerakan tidak boleh kehilangan lokasi.`, `Kantor Pusat` → `Cabang ini masih
+  dipakai oleh 7 barang, 3 lokasi.`, `Gudang Bandung` → `Lokasi ini masih dipakai
+  oleh 2 barang.` (tanpa "pergerakan", karena riwayatnya kosong). Angka-angka itu
+  dari run 15–16 Oktober 2026; jumlah `pergerakan` bertambah 2 setiap kali smoke
+  dijalankan, jadi pesan lokasi bisa berbunyi angka lain — yang penting polanya
+  cocok. Tiap baris juga diperiksa: pesannya terbaca sebagai `role="alert"` dan
+  barisnya **masih ada** sesudahnya. Snapshot DB (jumlah baris + seluruh
+  `searchKey`) **identik sebelum vs. sesudah** seluruh percobaan.
+- Jalur sukses: kategori sementara dibuat → langsung bisa dihapus; cabang
+  sementara yang ditunjuk satu lokasi sementara → ditolak (`1 lokasi`) → setelah
+  lokasinya dihapus, cabangnya bisa dihapus. DB kembali seperti semula.
+- **Penjagaan permanen di `smoke.ps1`** — bagian *hapus data master*, 31
+  pemeriksaan baru: tiga baris seed (`Elektronik`, `Gudang A`, `Kantor Pusat`)
+  di-POST hapus, lalu diperiksa jumlah pemakaiannya benar-benar tampil
+  (`\d+ barang`, `\d+ barang, \d+ pergerakan`, `\d+ barang, \d+ lokasi`),
+  teksnya terbaca (`role="alert"`), dan barisnya masih ada; sesudah itu jalur
+  sukses (kategori `ZZ-Smoke-Kategori`) dan rujukan **tidak langsung** (cabang
+  sementara ← lokasi sementara) dijalankan dan dibersihkan di bagian yang sama.
+  Helper `Submit-Action` mendapat parameter opsional `$overrides` supaya skrip
+  bisa mengisi field form data master yang terlihat (input teks/select) — form
+  hapus tetap jalan tanpa itu karena field-nya `hidden`. Hasil: **236
+  pemeriksaan, 0 gagal**, `exit 0`.
+
+### Catatan
+
+- Rujukan **tidak langsung** ikut dihitung: cabang ditolak bukan hanya karena
+  barang yang menunjuk langsung (`sourceBranchId`/`ownerBranchId`), tetapi juga
+  karena lokasi miliknya — dan barang yang berada di lokasi itu. Tanpa itu,
+  menghapus cabang tetap bisa menihilkan `location.branchId` diam-diam.
 
 ## Hal teknis yang perlu diingat (jangan diulang salahnya)
 
@@ -822,12 +1112,28 @@ berubah), dan `smoke.ps1` **117 pemeriksaan, 0 gagal** (`exit 0`).
   schema)`.
 - **`Item.price` adalah harga SATUAN.** Jangan pernah memakainya sebagai nilai
   total, dan jangan menolkan nilainya saat barang dibuang/dijual.
+- **`smoke.ps1` dijalankan terhadap build produksi** (`npm run build` lalu
+  `npm run start -- -p 3100`), sesuai `README.md`. Menjalankannya ke server
+  **dev** (port 3000) memunculkan **3 kegagalan palsu** di bagian Sampah —
+  `items(setelah pulih)` dan `trash(setelah hapus lagi)` (×2) membaca halaman
+  tepat sesudah aksi `Pulihkan`/`Hapus` dan belum melihat perubahannya.
+  Mekanismenya belum ditelusuri sampai akar (kandidat: render/cache di dev),
+  tetapi jalur yang sama di server produksi **236/236 hijau** dan data di DB
+  akhirnya benar — jadi jangan menyimpulkan regresi hanya dari hasil di dev.
+- **`searchKey` basi punya dua jalur, bukan satu.** Selain rename data master,
+  memindahkan barang juga mengganti nama lokasi di dalam kunci. Keduanya sudah
+  ditangani (Paket 5 #1). Jalur ketiga — hapus data master — **ditutup dengan
+  menolak penghapusan** (Paket 5 #2), jadi `delete*Action` memang tidak perlu
+  merapikan apa pun: baris master yang masih dirujuk tidak pernah terhapus.
 
 ## Artefak
 
 - `smoke.ps1` (root project) — skrip smoke test, **dipertahankan**.
 - `dev.db` — database SQLite berisi data seed.
 - `smoke.log` — output smoke test terakhir (boleh dihapus kapan saja).
+- `scripts/rebuild-search-keys.ts` (+ `npm run rebuild-search-keys`) —
+  **dipertahankan**: backfill idempoten kolom `searchKey`. Ini satu-satunya isi
+  `scripts/`; semua skrip `tmp-*.ts` / `tmp-*.ps1` dari sesi ini sudah dihapus.
 - Server `next start -p 3100` dipakai untuk verifikasi sesi 9 Oktober 2026 dan
   12 Oktober 2026; matikan dengan `Stop-Process` bila sudah tidak dipakai.
   Perintah verifikasi lengkap (build → seed → "panaskan" cache → smoke):
@@ -846,4 +1152,8 @@ berubah), dan `smoke.ps1` **117 pemeriksaan, 0 gagal** (`exit 0`).
   `tmp-verify-code.ps1`, `tmp-cleanup.ts`) sudah **dihapus** — jangan commit file
   semacam itu; pakai `Get-Html`/`Submit-Action` di `smoke.ps1` kalau butuh
   membedah HTML, dan pakai `npx tsx` + `prisma` dari `src/lib/prisma.ts` untuk
-  membedah database.
+  membedah database. Hal yang sama berlaku untuk sesi 15 Oktober 2026
+  (`tmp-ids.ts`, `tmp-keys.ts`, `tmp-move-check.ts`, `tmp-cleanup.ts`,
+  `tmp-verify-search-keys.ts`, `tmp-final.ts`, `smoke-port3000.tmp.ps1`) —
+  semuanya sudah dihapus. `dev-server.log` / `dev-server.err.log` dari server
+  dev latar belakang juga artefak lokal, bukan bagian aplikasi.

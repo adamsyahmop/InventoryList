@@ -1,54 +1,19 @@
 import { isAuthenticated } from "@/lib/auth";
-import { ACQUISITION_SOURCE_LABELS } from "@/lib/constants";
+import { buildInventoryWorkbook, XLSX_CONTENT_TYPE } from "@/lib/excel";
 import { prisma } from "@/lib/prisma";
+import { ITEM_INCLUDE } from "@/lib/queries";
 
-const COLUMNS = [
-  "Kode",
-  "Nama",
-  "Kategori",
-  "Unit Pengelola",
-  "Merek",
-  "Model",
-  "Jumlah",
-  "Satuan",
-  "Harga",
-  "Total Nilai",
-  "Tanggal Beli",
-  "Garansi Sampai",
-  "Kondisi",
-  "Status",
-  "Lokasi",
-  "Cabang Lokasi",
-  "Sumber Perolehan",
-  "Cabang Pembeli",
-  "Pemilik Aset",
-  "Dipegang Oleh",
-  "Nomor Seri",
-  "No. Invoice",
-  "Supplier",
-  "Tanggal Dibuang",
-  "Alasan Dibuang",
-  "Tanggal Jual",
-  "Harga Jual",
-  "Catatan",
-] as const;
-
-/** Bungkus nilai agar aman dipakai di CSV (koma, kutip, baris baru). */
-function csvCell(value: string | number | null | undefined): string {
-  if (value === null || value === undefined) return "";
-  const text = String(value);
-  if (!/[",\r\n;]/.test(text)) return text;
-  return `"${text.replace(/"/g, '""')}"`;
-}
-
-function csvRow(values: Array<string | number | null | undefined>): string {
-  return values.map(csvCell).join(",");
-}
-
-function toIsoDate(value: Date | null): string {
-  return value ? value.toISOString().slice(0, 10) : "";
-}
-
+/**
+ * Ekspor seluruh barang aktif ke satu berkas Excel: sheet `Ringkasan` berisi
+ * rekap per tahun, lalu satu sheet per **tahun pada kode barang**
+ * (`INV-2026-…` → sheet `2026`). Barang yang sudah dihapus (soft delete) tidak
+ * ikut, sama seperti ekspor CSV sebelumnya.
+ *
+ * Catatan: `exceljs` menyusun .xlsx lewat zip/stream milik Node, jadi rute ini
+ * hanya boleh jalan di runtime Node. Segment config `runtime` tidak dipakai
+ * karena `cacheComponents` di `next.config.ts` melarangnya — runtime Node sudah
+ * menjadi default untuk route handler.
+ */
 export async function GET() {
   if (!(await isAuthenticated())) {
     return new Response("Unauthorized", { status: 401 });
@@ -56,63 +21,18 @@ export async function GET() {
 
   const items = await prisma.item.findMany({
     where: { deletedAt: null },
-    include: {
-      category: true,
-      department: true,
-      brand: true,
-      supplier: true,
-      sourceBranch: true,
-      ownerBranch: true,
-      location: { include: { branch: true } },
-    },
+    include: ITEM_INCLUDE,
     orderBy: { createdAt: "desc" },
   });
 
-  const lines = [csvRow([...COLUMNS])];
-
-  for (const item of items) {
-    lines.push(
-      csvRow([
-        item.code,
-        item.name,
-        item.category?.name,
-        item.department ? `${item.department.name} (${item.department.code})` : null,
-        item.brand?.name,
-        item.model,
-        item.quantity,
-        item.unit,
-        item.price,
-        item.price * item.quantity,
-        toIsoDate(item.purchaseDate),
-        toIsoDate(item.warrantyUntil),
-        item.condition,
-        item.status,
-        item.location?.name,
-        item.location?.branch?.name,
-        ACQUISITION_SOURCE_LABELS[item.acquisitionSource],
-        item.sourceBranch?.name,
-        item.ownerBranch?.name ?? "Kantor pusat",
-        item.assignedTo,
-        item.serialNumber,
-        item.invoiceNo,
-        item.supplier?.name,
-        toIsoDate(item.disposedAt),
-        item.disposalReason,
-        toIsoDate(item.soldAt),
-        item.soldPrice,
-        item.notes,
-      ]),
-    );
-  }
-
+  const bytes = await buildInventoryWorkbook(items);
   const stamp = new Date().toISOString().slice(0, 10);
-  // BOM dipakai supaya Excel membaca huruf beraksen dengan benar.
-  const body = `\uFEFF${lines.join("\r\n")}\r\n`;
 
-  return new Response(body, {
+  return new Response(bytes, {
     headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="inventaris-${stamp}.csv"`,
+      "Content-Type": XLSX_CONTENT_TYPE,
+      "Content-Disposition": `attachment; filename="inventaris-${stamp}.xlsx"`,
+      "Content-Length": String(bytes.byteLength),
       "Cache-Control": "no-store",
     },
   });

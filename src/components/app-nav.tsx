@@ -71,7 +71,7 @@ export function AppNav() {
             href="/api/export"
             className="hidden rounded-lg px-3 py-1.5 text-sm font-medium text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 sm:block"
           >
-            Export CSV
+            Export Excel
           </a>
           <form action={logoutAction}>
             <button

@@ -195,10 +195,10 @@ async function DashboardContent() {
               <table className="w-full text-sm">
                 <thead className="border-b border-neutral-200 text-left text-xs text-neutral-500 uppercase">
                   <tr>
-                    <th className="px-4 py-2 font-medium">Kategori</th>
-                    <th className="px-4 py-2 text-right font-medium">Jenis</th>
-                    <th className="px-4 py-2 text-right font-medium">Nilai</th>
-                    <th className="px-4 py-2 text-right font-medium">Porsi</th>
+                    <th scope="col" className="px-4 py-2 font-medium">Kategori</th>
+                    <th scope="col" className="px-4 py-2 text-right font-medium">Jenis</th>
+                    <th scope="col" className="px-4 py-2 text-right font-medium">Nilai</th>
+                    <th scope="col" className="px-4 py-2 text-right font-medium">Porsi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100">
@@ -270,10 +270,10 @@ async function DashboardContent() {
               <table className="w-full text-sm">
                 <thead className="border-b border-neutral-200 text-left text-xs text-neutral-500 uppercase">
                   <tr>
-                    <th className="px-4 py-2 font-medium">Cabang</th>
-                    <th className="px-4 py-2 text-right font-medium">Jenis</th>
-                    <th className="px-4 py-2 text-right font-medium">Nilai aset</th>
-                    <th className="px-4 py-2 text-right font-medium">Porsi</th>
+                    <th scope="col" className="px-4 py-2 font-medium">Cabang</th>
+                    <th scope="col" className="px-4 py-2 text-right font-medium">Jenis</th>
+                    <th scope="col" className="px-4 py-2 text-right font-medium">Nilai aset</th>
+                    <th scope="col" className="px-4 py-2 text-right font-medium">Porsi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100">

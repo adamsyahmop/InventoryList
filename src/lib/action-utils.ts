@@ -44,6 +44,59 @@ export function describeError(error: unknown): string {
 }
 
 /**
+ * Seluruh teks yang masuk ke `searchKey`, dalam urutan kanonik. Dipisahkan dari
+ * `buildItemSearchKey()` supaya kunci bisa dihitung ulang dari baris database
+ * (bukan hanya dari input form) tanpa menggandakan urutan field di dua tempat.
+ */
+export type ItemSearchKeyFields = {
+  code?: string | null;
+  name?: string | null;
+  model?: string | null;
+  serialNumber?: string | null;
+  invoiceNo?: string | null;
+  assignedTo?: string | null;
+  notes?: string | null;
+  disposalReason?: string | null;
+  categoryName?: string | null;
+  departmentName?: string | null;
+  departmentCode?: string | null;
+  brandName?: string | null;
+  locationName?: string | null;
+  locationBranchName?: string | null;
+  locationBranchCode?: string | null;
+  supplierName?: string | null;
+  sourceBranchName?: string | null;
+  sourceBranchCode?: string | null;
+  ownerBranchName?: string | null;
+  ownerBranchCode?: string | null;
+};
+
+export function composeItemSearchKey(fields: ItemSearchKeyFields): string {
+  return buildSearchKey(
+    fields.code,
+    fields.name,
+    fields.model,
+    fields.serialNumber,
+    fields.invoiceNo,
+    fields.assignedTo,
+    fields.notes,
+    fields.disposalReason,
+    fields.categoryName,
+    fields.departmentName,
+    fields.departmentCode,
+    fields.brandName,
+    fields.locationName,
+    fields.locationBranchName,
+    fields.locationBranchCode,
+    fields.supplierName,
+    fields.sourceBranchName,
+    fields.sourceBranchCode,
+    fields.ownerBranchName,
+    fields.ownerBranchCode,
+  );
+}
+
+/**
  * `searchKey` menggabungkan seluruh teks yang bisa dicari, termasuk nama
  * relasi. Ini menggantikan `mode: "insensitive"` yang tidak didukung SQLite
  * sehingga pencarian tetap portabel ke PostgreSQL.
@@ -108,28 +161,117 @@ export async function buildItemSearchKey(data: ItemInput): Promise<string> {
         : null,
     ]);
 
-  return buildSearchKey(
-    data.code,
-    data.name,
-    data.model,
-    data.serialNumber,
-    data.invoiceNo,
-    data.assignedTo,
-    data.notes,
-    data.disposalReason,
-    category?.name,
-    department?.name,
-    department?.code,
-    brand?.name,
-    location?.name,
-    location?.branch?.name,
-    location?.branch?.code,
-    supplier?.name,
-    sourceBranch?.name,
-    sourceBranch?.code,
-    ownerBranch?.name,
-    ownerBranch?.code,
+  return composeItemSearchKey({
+    code: data.code,
+    name: data.name,
+    model: data.model,
+    serialNumber: data.serialNumber,
+    invoiceNo: data.invoiceNo,
+    assignedTo: data.assignedTo,
+    notes: data.notes,
+    disposalReason: data.disposalReason,
+    categoryName: category?.name,
+    departmentName: department?.name,
+    departmentCode: department?.code,
+    brandName: brand?.name,
+    locationName: location?.name,
+    locationBranchName: location?.branch?.name,
+    locationBranchCode: location?.branch?.code,
+    supplierName: supplier?.name,
+    sourceBranchName: sourceBranch?.name,
+    sourceBranchCode: sourceBranch?.code,
+    ownerBranchName: ownerBranch?.name,
+    ownerBranchCode: ownerBranch?.code,
+  });
+}
+
+/** Relasi yang namanya ikut tersimpan di `searchKey`. */
+const SEARCH_KEY_RELATION_SELECT = {
+  category: { select: { name: true } },
+  department: { select: { name: true, code: true } },
+  brand: { select: { name: true } },
+  location: {
+    select: { name: true, branch: { select: { name: true, code: true } } },
+  },
+  supplier: { select: { name: true } },
+  sourceBranch: { select: { name: true, code: true } },
+  ownerBranch: { select: { name: true, code: true } },
+} as const;
+
+/**
+ * Hitung ulang `searchKey` dari kondisi database SAAT INI untuk semua barang
+ * yang cocok `where`.
+ *
+ * `searchKey` menyalin nama kategori/unit/merek/lokasi/cabang/supplier, jadi
+ * setiap perubahan nama data master — dan setiap perpindahan barang ke lokasi
+ * lain — meninggalkan teks lama di kunci pencarian. Akibatnya `?q=` masih bisa
+ * menemukan barang lewat nama yang sudah tidak dipakai, dan gagal menemukannya
+ * lewat nama yang baru. Karena itu semua jalur mutasi yang menyentuh relasi
+ * tersebut wajib memanggil salah satu fungsi di bawah.
+ */
+export async function refreshItemSearchKeys(
+  where: Prisma.ItemWhereInput,
+): Promise<number> {
+  const rows = await prisma.item.findMany({ where, select: { id: true } });
+  return refreshItemSearchKeysByIds(rows.map((row) => row.id));
+}
+
+/** Versi `refreshItemSearchKeys()` untuk daftar id yang sudah dikumpulkan. */
+export async function refreshItemSearchKeysByIds(
+  ids: readonly string[],
+): Promise<number> {
+  if (ids.length === 0) return 0;
+
+  const items = await prisma.item.findMany({
+    where: { id: { in: [...ids] } },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      model: true,
+      serialNumber: true,
+      invoiceNo: true,
+      assignedTo: true,
+      notes: true,
+      disposalReason: true,
+      ...SEARCH_KEY_RELATION_SELECT,
+    },
+  });
+  if (items.length === 0) return 0;
+
+  await prisma.$transaction(
+    items.map((item) =>
+      prisma.item.update({
+        where: { id: item.id },
+        data: {
+          searchKey: composeItemSearchKey({
+            code: item.code,
+            name: item.name,
+            model: item.model,
+            serialNumber: item.serialNumber,
+            invoiceNo: item.invoiceNo,
+            assignedTo: item.assignedTo,
+            notes: item.notes,
+            disposalReason: item.disposalReason,
+            categoryName: item.category?.name,
+            departmentName: item.department?.name,
+            departmentCode: item.department?.code,
+            brandName: item.brand?.name,
+            locationName: item.location?.name,
+            locationBranchName: item.location?.branch?.name,
+            locationBranchCode: item.location?.branch?.code,
+            supplierName: item.supplier?.name,
+            sourceBranchName: item.sourceBranch?.name,
+            sourceBranchCode: item.sourceBranch?.code,
+            ownerBranchName: item.ownerBranch?.name,
+            ownerBranchCode: item.ownerBranch?.code,
+          }),
+        },
+      }),
+    ),
   );
+
+  return items.length;
 }
 
 export function toItemWriteData(

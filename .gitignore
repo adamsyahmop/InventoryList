@@ -51,7 +51,10 @@ next-env.d.ts
 /server.log
 /dev.log
 /dev.err.log
+/dev-server*.log
+/prod-*.log
 /.tmp-*.ps1
+/scripts/tmp-*
 
 /src/generated/prisma
 

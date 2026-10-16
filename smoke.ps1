@@ -1,5 +1,7 @@
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Net.Http
+# Berkas .xlsx adalah arsip ZIP, jadi isinya diperiksa lewat System.IO.Compression.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 $base = 'http://localhost:3100'
 $secret = 'dev-only-insecure-secret-change-me'
 
@@ -45,6 +47,21 @@ function Get-MovementCount([string]$body) {
 function HasText([string]$label, [string]$body, [string]$needle, [bool]$want = $true) {
   $verb = if ($want) { 'memuat' } else { 'TIDAK memuat' }
   Check "$label $verb '$needle'" ($body.Contains($needle)) $want
+}
+
+# Id sebuah baris data master dari HTML /master. Id diambil dari input hidden
+# `name="id"` di dalam form Hapus baris itu, dan barisnya dikenali dari label
+# (teks `text-neutral-800`), bukan dari urutan — supaya tetap benar walau data
+# seed berubah urutannya.
+function Get-MasterRowId([string]$body, [string]$label) {
+  foreach ($m in [regex]::Matches($body, '(?s)<li class="py-2">(.*?)</li>')) {
+    $chunk = $m.Groups[1].Value
+    $labelMatch = [regex]::Match($chunk, 'text-neutral-800">([^<]*)<')
+    if (-not $labelMatch.Success -or $labelMatch.Groups[1].Value -ne $label) { continue }
+    $idMatch = [regex]::Match($chunk, 'name="id" value="([^"]+)"')
+    if ($idMatch.Success) { return $idMatch.Groups[1].Value }
+  }
+  return ''
 }
 
 # Login sungguhan lewat form server action (jalur progressive enhancement):
@@ -116,7 +133,7 @@ function Get-Html([string]$path, [string]$cookie) {
 # `deleteItemAction` / `restoreItemAction` benar-benar dieksekusi, bukan hanya
 # halamannya di-GET. Form dipilih lewat teks tombolnya, supaya tetap benar walau
 # tombol Hapus dan Pulihkan sama-sama ada di satu halaman.
-function Submit-Action([string]$path, [string]$buttonText, [string]$idContains, [string]$cookie) {
+function Submit-Action([string]$path, [string]$buttonText, [string]$idContains, [string]$cookie, [hashtable]$overrides = @{}) {
   $html = Get-Html $path $cookie
   $fields = $null
   foreach ($formMatch in [regex]::Matches($html, '(?s)<form\b.*?</form>')) {
@@ -138,6 +155,10 @@ function Submit-Action([string]$path, [string]$buttonText, [string]$idContains, 
     break
   }
   if (-not $fields) { throw "form dengan tombol '$buttonText' tidak ditemukan di $path" }
+  # Form data master punya input teks/select yang terlihat (bukan hidden), jadi
+  # nilainya tidak ikut terbaca dari HTML. `$overrides` mengisi field itu supaya
+  # skrip benar-benar menyimpan/menghapus baris master, bukan mengirim form kosong.
+  foreach ($key in $overrides.Keys) { $fields[$key] = [string]$overrides[$key] }
 
   # Body multipart disusun manual dan dikirim lewat HttpWebRequest — sama seperti
   # `Hit()` — karena HttpClient mengabaikan header Cookie yang dipasang manual di
@@ -176,6 +197,46 @@ function Submit-Action([string]$path, [string]$buttonText, [string]$idContains, 
   return [pscustomobject]@{ Code = $code; Location = $location; Body = $body }
 }
 
+# Ekspor kini berupa berkas .xlsx (arsip ZIP), jadi isinya tidak bisa dibaca
+# sebagai teks seperti CSV dulu. Berkas diunduh ke file sementara lalu diperiksa
+# lewat ZipFile: nama sheet dari `xl/workbook.xml`, seluruh teks sel dari
+# `xl/sharedStrings.xml`, dan format angka dari `xl/styles.xml`.
+function Get-Export([string]$cookie) {
+  $file = Join-Path $env:TEMP 'smoke-export.xlsx'
+  $req = [System.Net.HttpWebRequest]::Create("$base/api/export")
+  $req.AllowAutoRedirect = $false
+  $req.Timeout = 30000
+  if ($cookie) { $req.Headers.Add('Cookie', "inventory_session=$cookie") }
+  try { $res = $req.GetResponse() } catch [System.Net.WebException] { $res = $_.Exception.Response }
+  $code = [int]$res.StatusCode
+  $ct = if ($res.ContentType) { $res.ContentType } else { '' }
+  $disp = if ($res.Headers['Content-Disposition']) { $res.Headers['Content-Disposition'] } else { '' }
+  $length = 0
+  if ($code -eq 200) {
+    $target = [System.IO.File]::Create($file)
+    $res.GetResponseStream().CopyTo($target)
+    $target.Close()
+    $length = (Get-Item -LiteralPath $file).Length
+  }
+  $res.Close()
+  $line = "{0,-50} {1,-4} {2,-24} {3,-26} len={4}" -f '/api/export', $code, '', $ct, $length
+  [Console]::WriteLine($line)
+  return [pscustomobject]@{ Code = $code; ContentType = $ct; Disposition = $disp; File = $file; Length = $length }
+}
+
+# Ambil satu berkas di dalam arsip .xlsx; '' bila tidak ada.
+function Read-ZipEntry([string]$zipPath, [string]$entryName) {
+  $zip = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
+  try {
+    $entry = $zip.GetEntry($entryName)
+    if (-not $entry) { return '' }
+    $reader = New-Object System.IO.StreamReader($entry.Open())
+    $text = $reader.ReadToEnd()
+    $reader.Close()
+    return $text
+  } finally { $zip.Dispose() }
+}
+
 $issuedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds().ToString()
 $hmac = New-Object System.Security.Cryptography.HMACSHA256
 $hmac.Key = [Text.Encoding]::UTF8.GetBytes($secret)
@@ -201,7 +262,14 @@ $itemsPaged = Hit '/items?page=1&sort=price_desc' $token
 $newItem = Hit '/items/new' $token
 $movements = Hit '/movements' $token
 $master = Hit '/master' $token
-$csv = Hit '/api/export' $token
+$export = Get-Export $token
+# Dibaca sekali di sini lalu dipakai beberapa pemeriksaan di bawah.
+$exportSheets = Read-ZipEntry $export.File 'xl/workbook.xml'
+$exportText = Read-ZipEntry $export.File 'xl/sharedStrings.xml'
+$exportStyles = Read-ZipEntry $export.File 'xl/styles.xml'
+# Sheet tahun pertama selalu sheet2 (sheet1 = Ringkasan); dipakai untuk menguji
+# bahwa tanggal ditulis sebagai tanggal Excel, bukan teks.
+$exportYearSheet = Read-ZipEntry $export.File 'xl/worksheets/sheet2.xml'
 $missingItem = Hit '/items/doesnotexist1234567890' $token
 $missingItemEdit = Hit '/items/doesnotexist1234567890/edit' $token
 $emptySearch = Hit '/items?q=zzzznothing' $token
@@ -210,7 +278,10 @@ $overflowPage = Hit '/items?page=999' $token
 $missingRoute = Hit '/halaman-tidak-ada-xyz' $token
 
 $itemId = $null
-$m = [regex]::Match($items.Body, '/items/([A-Za-z0-9_-]{15,})')
+# `href="` wajib disertakan: HTML mode dev juga memuat path modul klien
+# (mis. `src/components/items/restore-item-button.tsx`) yang ikut cocok dengan
+# pola id, dan urutannya bergantung pada waktu kompilasi dev server.
+$m = [regex]::Match($items.Body, 'href="/items/([A-Za-z0-9_-]{15,})"')
 if ($m.Success) { $itemId = $m.Groups[1].Value }
 [Console]::WriteLine('')
 if ($itemId) {
@@ -269,7 +340,7 @@ $soldSearch = Hit '/items?q=INV-2026-0009' $token
 # (`...-PC`) juga harus menemukan barangnya — bukti `searchKey` ikut diperbarui.
 $soldSearchSuffix = Hit '/items?q=INV-2026-0009-PC' $token
 $soldId = $null
-$soldMatch = [regex]::Match($soldSearch.Body, '/items/([A-Za-z0-9_-]{15,})')
+$soldMatch = [regex]::Match($soldSearch.Body, 'href="/items/([A-Za-z0-9_-]{15,})"')
 if ($soldMatch.Success) { $soldId = $soldMatch.Groups[1].Value }
 $soldDetail = $null
 if ($soldId) { $soldDetail = Hit "/items/$soldId" $token }
@@ -327,10 +398,23 @@ Check 'auth GET /items?sort=price_desc status' $itemsPaged.Code 200
 Check 'auth GET /items/new status' $newItem.Code 200
 Check 'auth GET /movements status' $movements.Code 200
 Check 'auth GET /master status' $master.Code 200
-Check 'auth GET /api/export status' $csv.Code 200
-Check 'api/export content-type' $csv.ContentType 'text/csv; charset=utf-8'
-Check 'api/export diawali Kode,Nama' $csv.Body.StartsWith('Kode,Nama') $true
-Check 'api/export tanpa BOM mentah' $csv.Body.Contains('INV-2026-0001') $true
+Check 'auth GET /api/export status' $export.Code 200
+Check 'api/export content-type xlsx' $export.ContentType 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+Check 'api/export nama berkas .xlsx' ($export.Disposition -like '*.xlsx*') $true
+# Berkas .xlsx wajib berupa arsip ZIP: empat byte pertama adalah "PK\3\4".
+$exportMagic = [Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($export.File)[0..3])
+Check 'api/export berupa arsip ZIP' $exportMagic "PK$([char]3)$([char]4)"
+Check 'api/export punya sheet Ringkasan' ($exportSheets.Contains('name="Ringkasan"')) $true
+# Sheet per tahun diambil dari kode barang: seed memakai INV-2026-… → sheet 2026.
+Check 'api/export punya sheet tahun dari kode' ($exportSheets.Contains('name="2026"')) $true
+Check 'api/export tanpa sheet tahun palsu' ($exportSheets.Contains('name="Tanpa Tahun"')) $false
+Check 'api/export memuat kode barang' ($exportText.Contains('INV-2026-0001')) $true
+Check 'api/export memuat baris TOTAL' ($exportText.Contains('TOTAL (')) $true
+# Harga & tanggal memakai format Excel asli, bukan teks, supaya bisa dijumlah
+# dan diurutkan langsung di Excel.
+Check 'api/export format rupiah Excel' ($exportStyles.Contains('&quot;Rp&quot;#,##0')) $true
+Check 'api/export format tanggal Excel' ($exportStyles.Contains('dd/mm/yyyy')) $true
+Check 'api/export tanggal beli berupa tanggal' ([regex]::IsMatch($exportYearSheet, '<c r="K2"[^>]*><v>[\d.]+</v>')) $true
 
 HasText 'dashboard' $dash.Body 'Jenis barang'
 # Kartu depan kini memakai JUMLAH aset aktif, bukan nilai rupiahnya.
@@ -385,6 +469,88 @@ HasText 'master' $master.Body 'Unit kerja pemilik aset'
 HasText 'master' $master.Body 'Kode cabang'
 HasText 'master' $master.Body 'Cabang Bandung (BDG)'
 
+# --- hapus data master: penjagaan referensi (Tier A #2) -----------------------
+# Semua relasi master memakai `onDelete: SetNull`, jadi hapus TANPA penjagaan
+# menihilkan referensi secara diam-diam: barang kehilangan kategori/lokasi,
+# riwayat pergerakan kehilangan nama lokasi, dan `searchKey` barang masih memuat
+# nama yang sudah lenyap. Yang diuji di sini adalah jalur nyatanya — POST form
+# server action tanpa JavaScript — yaitu baris yang masih dipakai DITOLAK dengan
+# jumlah pemakaian yang terbaca di HTML, sementara baris yang tidak dipakai tetap
+# bisa dihapus.
+$categoryId = Get-MasterRowId $master.Body 'Elektronik'
+$locationId = Get-MasterRowId $master.Body 'Gudang A'
+$branchId = Get-MasterRowId $master.Body 'Kantor Pusat'
+Check 'master id kategori Elektronik ditemukan' ($categoryId -ne '') $true
+Check 'master id lokasi Gudang A ditemukan' ($locationId -ne '') $true
+Check 'master id cabang Kantor Pusat ditemukan' ($branchId -ne '') $true
+
+if ($categoryId) {
+  $deniedCategory = Submit-Action '/master' 'Hapus' $categoryId $token
+  Check 'POST /master [Hapus kategori dipakai] status' $deniedCategory.Code 200
+  Check 'hapus kategori: jumlah barang tampil' ([regex]::IsMatch($deniedCategory.Body, 'Kategori ini masih dipakai oleh \d+ barang\.')) $true
+  HasText 'hapus kategori' $deniedCategory.Body 'Pindahkan atau ganti referensinya dulu sebelum menghapus.'
+  # Pesannya wajib jadi Alert: tanpa teks yang terbaca, penolakan tampak seperti
+  # tombol yang tidak bekerja.
+  HasText 'hapus kategori' $deniedCategory.Body 'role="alert"'
+  Check 'kategori yang dipakai tidak terhapus' (Get-MasterRowId (Hit '/master' $token).Body 'Elektronik') $categoryId
+}
+
+if ($locationId) {
+  $deniedLocation = Submit-Action '/master' 'Hapus' $locationId $token
+  Check 'POST /master [Hapus lokasi dipakai] status' $deniedLocation.Code 200
+  Check 'hapus lokasi: jumlah barang & pergerakan tampil' ([regex]::IsMatch($deniedLocation.Body, 'Lokasi ini masih dipakai oleh \d+ barang, \d+ pergerakan\.')) $true
+  # Lokasi yang muncul di riwayat pergerakan dapat nasihat berbeda: jejak audit
+  # tidak boleh kehilangan tempat asal/tujuan barang.
+  HasText 'hapus lokasi' $deniedLocation.Body 'Riwayat pergerakan tidak boleh kehilangan lokasi.'
+  HasText 'hapus lokasi' $deniedLocation.Body 'role="alert"'
+  Check 'lokasi yang dipakai tidak terhapus' (Get-MasterRowId (Hit '/master' $token).Body 'Gudang A') $locationId
+}
+
+if ($branchId) {
+  $deniedBranch = Submit-Action '/master' 'Hapus' $branchId $token
+  Check 'POST /master [Hapus cabang dipakai] status' $deniedBranch.Code 200
+  Check 'hapus cabang: jumlah barang & lokasi tampil' ([regex]::IsMatch($deniedBranch.Body, 'Cabang ini masih dipakai oleh \d+ barang, \d+ lokasi\.')) $true
+  HasText 'hapus cabang' $deniedBranch.Body 'role="alert"'
+  Check 'cabang yang dipakai tidak terhapus' (Get-MasterRowId (Hit '/master' $token).Body 'Kantor Pusat') $branchId
+}
+
+# Baris yang TIDAK dipakai tetap bisa dihapus. Baris sementara di bawah dibuat
+# lalu dihapus lagi di bagian yang sama, jadi isi database kembali seperti semula.
+$tmpCategory = 'ZZ-Smoke-Kategori'
+$createCategory = Submit-Action '/master' 'Tambah' 'id="Kategori-name"' $token @{ name = $tmpCategory; code = 'ZZSMOKE'; description = '' }
+Check 'POST /master [Tambah kategori] status' $createCategory.Code 200
+HasText 'tambah kategori' $createCategory.Body 'Kategori ditambahkan.'
+$tmpCategoryId = Get-MasterRowId (Hit '/master' $token).Body $tmpCategory
+Check 'kategori sementara muncul di daftar' ($tmpCategoryId -ne '') $true
+if ($tmpCategoryId) {
+  $removeCategory = Submit-Action '/master' 'Hapus' $tmpCategoryId $token
+  Check 'POST /master [Hapus kategori tak dipakai] status' $removeCategory.Code 200
+  HasText 'hapus kategori tak dipakai' $removeCategory.Body 'Kategori dihapus.'
+  Check 'kategori sementara hilang dari daftar' (Get-MasterRowId (Hit '/master' $token).Body $tmpCategory) ''
+}
+
+# Rujukan TIDAK LANGSUNG: cabang tanpa barang tetap ditolak selama masih ada
+# lokasi yang menunjuk ke sana (`Location.branchId`).
+$tmpBranch = 'ZZ-Smoke-Cabang'
+$tmpLocation = 'ZZ-Smoke-Lokasi'
+$createBranch = Submit-Action '/master' 'Tambah' 'id="Cabang-name"' $token @{ name = $tmpBranch; code = 'ZZSMOKE'; notes = '' }
+HasText 'tambah cabang' $createBranch.Body 'Cabang ditambahkan.'
+$tmpBranchId = Get-MasterRowId (Hit '/master' $token).Body $tmpBranch
+Check 'cabang sementara muncul di daftar' ($tmpBranchId -ne '') $true
+if ($tmpBranchId) {
+  $createLocation = Submit-Action '/master' 'Tambah' 'id="Lokasi-name"' $token @{ name = $tmpLocation; building = ''; floor = ''; room = ''; branchId = $tmpBranchId; notes = '' }
+  HasText 'tambah lokasi' $createLocation.Body 'Lokasi ditambahkan.'
+  $tmpLocationId = Get-MasterRowId (Hit '/master' $token).Body $tmpLocation
+  Check 'lokasi sementara muncul di daftar' ($tmpLocationId -ne '') $true
+  if ($tmpLocationId) {
+    $deniedTmpBranch = Submit-Action '/master' 'Hapus' $tmpBranchId $token
+    Check 'cabang sementara ditolak karena 1 lokasi' ([regex]::IsMatch($deniedTmpBranch.Body, 'Cabang ini masih dipakai oleh 1 lokasi\.')) $true
+    HasText 'hapus lokasi sementara' (Submit-Action '/master' 'Hapus' $tmpLocationId $token).Body 'Lokasi dihapus.'
+    HasText 'hapus cabang sementara' (Submit-Action '/master' 'Hapus' $tmpBranchId $token).Body 'Cabang dihapus.'
+    Check 'cabang sementara hilang dari daftar' (Get-MasterRowId (Hit '/master' $token).Body $tmpBranch) ''
+  }
+}
+
 # --- dimensi cabang ----------------------------------------------------------
 HasText 'items' $items.Body 'Lokasi / cabang'
 HasText 'items' $items.Body 'Cabang lokasi'
@@ -421,8 +587,8 @@ HasText 'master' $master.Body 'Unit pengelola'
 HasText 'master' $master.Body 'Nama unit'
 HasText 'master' $master.Body 'Kode unit'
 HasText 'master' $master.Body 'General Affairs'
-Check 'api/export memuat kolom unit pengelola' ($csv.Body.Contains('Unit Pengelola')) $true
-Check 'api/export memuat nilai unit pengelola' ($csv.Body.Contains('IT (IT)')) $true
+Check 'api/export memuat kolom unit pengelola' ($exportText.Contains('Unit Pengelola')) $true
+Check 'api/export memuat nilai unit pengelola' ($exportText.Contains('IT (IT)')) $true
 
 # --- pelepasan aset ----------------------------------------------------------
 Check 'auth GET /items?q=INV-2026-0009 status' $soldSearch.Code 200
@@ -462,9 +628,9 @@ HasText 'items/new' $newItem.Body 'Jenis barang'
 HasText 'items/new' $newItem.Body '<option value="PC">'
 HasText 'items/new' $newItem.Body '<option value="LPT">'
 # Kode barang contoh di seed sudah ikut format baru (bersuffix jenis), dan nilai
-# itu harus konsisten di daftar, ekspor CSV, serta pencarian berbasis searchKey.
+# itu harus konsisten di daftar, ekspor Excel, serta pencarian berbasis searchKey.
 HasText 'items' $items.Body 'INV-2026-0001-LPT'
-Check 'api/export memuat kode bersuffix' ($csv.Body.Contains('INV-2026-0001-LPT')) $true
+Check 'api/export memuat kode bersuffix' ($exportText.Contains('INV-2026-0001-LPT')) $true
 Check 'auth GET /items?q=INV-2026-0009-PC status' $soldSearchSuffix.Code 200
 HasText 'items(q=INV-2026-0009-PC)' $soldSearchSuffix.Body 'PC Desktop HP ProDesk 400'
 
@@ -508,7 +674,9 @@ $trashIdContains = 'INV-2026-0010'
 # pencarian merender ulang kata kunci, jadi kode barang selalu ada di HTML
 # halaman hasil pencarian walau barisnya sudah terhapus.
 $trashName = 'Lemari Arsip Besi Lion'
-$trashMatch = [regex]::Match($trash.Body, '/items/([A-Za-z0-9_-]{15,})')
+# Anchor `href="` seperti di bagian awal, supaya path modul klien pada payload
+# dev tidak pernah disalahartikan sebagai id barang.
+$trashMatch = [regex]::Match($trash.Body, 'href="/items/([A-Za-z0-9_-]{15,})"')
 $trashId = if ($trashMatch.Success) { $trashMatch.Groups[1].Value } else { $null }
 
 Check 'auth GET /items/terhapus status' $trash.Code 200
@@ -521,9 +689,9 @@ HasText 'trash' $trash.Body 'Pulihkan'
 # jadi yang tampil selalu "Dibuang" (status sebelum dihapus tidak disimpan).
 HasText 'trash' $trash.Body 'Status terakhir'
 HasText 'trash' $trash.Body 'Dibuang'
-# Barang terhapus harus absen dari daftar aktif dan dari ekspor CSV.
+# Barang terhapus harus absen dari daftar aktif dan dari ekspor Excel.
 HasText 'items(tanpa barang terhapus)' $items.Body $trashName $false
-HasText 'csv(tanpa barang terhapus)' $csv.Body $trashIdContains $false
+HasText 'xlsx(tanpa barang terhapus)' $exportText $trashIdContains $false
 # Navigasi hanya boleh menandai SATU menu aktif: `/items/terhapus` tidak boleh
 # ikut menyalakan menu `/items` (aturan prefix terpanjang di app-nav.tsx).
 Check 'nav aktif tunggal di /items/terhapus' ([regex]::Matches($trash.Body, 'aria-current="page"').Count) 1

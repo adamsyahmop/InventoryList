@@ -22,8 +22,11 @@ export const CACHE_TAGS = {
 /**
  * Bentuk relasi yang selalu dibutuhkan daftar/detail barang. Cabang muncul
  * tiga kali dengan peran berbeda: lokasi fisik, cabang pembeli, dan pemilik.
+ * Dipakai juga oleh ekspor Excel (`/api/export`) supaya tipe baris yang
+ * dikirim ke `buildInventoryWorkbook()` tidak pernah menyimpang dari
+ * `ItemWithRelations`.
  */
-const ITEM_INCLUDE = {
+export const ITEM_INCLUDE = {
   category: true,
   department: true,
   brand: true,

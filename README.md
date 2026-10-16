@@ -7,11 +7,12 @@ suffix jenis, mis. `INV-2026-0011-LPT`), nama, merek, jenis/kategori, tanggal
 beli, harga, lokasi, supplier, garansi, kondisi, dan status — lengkap dengan
 cabang (lokasi, pembeli, pemilik), metadata pelepasan aset (dibuang / dijual),
 riwayat pergerakan barang, halaman **Sampah** (soft delete + pemulihan),
-**label QR siap cetak per barang**, serta ekspor CSV.
+**label QR siap cetak per barang**, serta ekspor **Excel (.xlsx)** dengan satu
+sheet per tahun.
 
 Stack: **Next.js 16.4.0** (Turbopack, Cache Components + Partial Prefetching) ·
 **Prisma 7.10.0** · **SQLite** (`dev.db`) · **Zod** · **`qrcode`** (QR SVG
-server-side) · Tailwind CSS 4.
+server-side) · **`exceljs`** (penyusun berkas .xlsx) · Tailwind CSS 4.
 
 > Halaman aplikasi berada di `src/app/(app)/`, bukan `app/page.tsx`. Proteksi
 > rute ada di `src/proxy.ts` (Proxy Next.js 16, Node.js runtime).
@@ -23,6 +24,7 @@ cp .env.example .env     # lalu sesuaikan APP_PASSWORD & SESSION_SECRET
 npm install
 npx prisma migrate deploy # atau: npx prisma migrate dev
 npm run seed             # isi data contoh (10 barang, master, riwayat pergerakan)
+npm run rebuild-search-keys # DB lama saja: hitung ulang kolom searchKey (aman diulang)
 npm run dev              # http://localhost:3000
 ```
 
@@ -40,12 +42,14 @@ Variabel lingkungan yang dipakai (`src/lib/session.ts`):
 login sungguhan lewat POST form (password benar → 303 + cookie, password salah →
 pesan error), semua halaman utama dengan cookie sesi, isi konten penting
 (termasuk angka dashboard dan nilai aset aktif vs nilai perolehan), filter
-cabang/sumber/unit pengelola, ekspor CSV, empty state filter, dan UI 404. Total
-**197 pemeriksaan**.
+cabang/sumber/unit pengelola, ekspor Excel (berkas .xlsx diperiksa isinya lewat
+`System.IO.Compression`: nama sheet, format angka, dan tanggal asli Excel),
+**penolakan hapus data master yang masih dipakai**, empty state filter, dan UI
+404. Total **236 pemeriksaan**.
 
 Bagian **SAMPAH** di skrip itu menguji soft delete secara end-to-end: barang
-terhapus tampil di `/items/terhapus` dan absen dari daftar aktif/CSV, tombol
-Edit dan form pergerakan tidak tersedia untuk barang terhapus, lalu aksi
+terhapus tampil di `/items/terhapus` dan absen dari daftar aktif/ekspor Excel,
+tombol Edit dan form pergerakan tidak tersedia untuk barang terhapus, lalu aksi
 **Pulihkan** benar-benar dieksekusi (POST multipart form server action, jalur
 tanpa JavaScript) dan diverifikasi lewat daftar aktif, empty state Sampah, serta
 baris riwayat baru. Di akhir, barang dihapus lagi supaya isi Sampah kembali
@@ -60,6 +64,17 @@ kode yang **sama** dengan halaman detail, serta tautan QR ke `/items/<id>`.
 Bagian ini sengaja tidak menulis apa pun ke database, jadi bisa dijalankan
 berulang tanpa mengubah angka dashboard.
 
+Bagian **HAPUS DATA MASTER** menguji kebijakan hapus `/master` lewat jalur tanpa
+JavaScript: baris seed yang masih dipakai (`Elektronik`, `Gudang A`,
+`Kantor Pusat`) di-POST ke form Hapus-nya dan harus **ditolak** dengan jumlah
+pemakaian yang terbaca di HTML (`\d+ barang`, `\d+ barang, \d+ pergerakan`,
+`\d+ barang, \d+ lokasi`); pesannya harus tampil sebagai `role="alert"` dan
+barisnya harus **masih ada** sesudahnya. Sesudah itu jalur sukses diuji dengan
+baris sementara (kategori `ZZ-Smoke-Kategori`) dan rujukan **tidak langsung**
+(cabang sementara ditolak selama satu lokasi sementara menunjuk ke sana, lalu
+keduanya dihapus). Semua baris sementara dihapus di bagian yang sama, jadi isi
+database kembali seperti semula.
+
 ```bash
 npm run build
 npm run start -- -p 3100        # jalankan di terminal terpisah
@@ -72,12 +87,34 @@ konstanta `$secret` di `smoke.ps1` **harus sama** dengan `SESSION_SECRET` di
 `.env`. Blok login POST membaca `APP_PASSWORD` langsung dari `.env` (fallback
 `admin`), jadi tidak ada password yang di-hardcode di skrip.
 
-> Catatan: tiap run smoke menulis satu baris audit `Pemulihan dari Sampah` yang
-> **tidak dihapus** oleh `npm run seed` (seed hanya membuat movement untuk barang
-> yang belum punya, dan fixture-nya cuma 2 pergerakan). Jadi angka "pergerakan"
-> yang dicetak seed naik 1 setiap kali smoke dijalankan, dan pemeriksaan riwayat
-> di skrip sengaja dihitung sebagai **delta**, bukan jumlah tetap. Untuk reset
-> bersih: hapus `dev.db` → `npx prisma migrate deploy` → `npm run seed`.
+> Catatan: tiap run smoke menulis **dua** baris audit — `Dihapus ke Sampah` dan
+> `Pemulihan dari Sampah` — yang **tidak dihapus** oleh `npm run seed` (seed hanya
+> membuat movement untuk barang yang belum punya, dan fixture-nya cuma 2
+> pergerakan). Jadi angka "pergerakan" yang dicetak seed naik 2 setiap kali smoke
+> dijalankan, dan pemeriksaan riwayat di skrip sengaja dihitung sebagai **delta**,
+> bukan jumlah tetap. Untuk reset bersih: hapus `dev.db` →
+> `npx prisma migrate deploy` → `npm run seed`.
+
+> Catatan: pemeriksaan angka dashboard (`112.600.000`, `100.350.000`, `31 unit
+> masih dimiliki`) memakai **angka tetap data seed**, jadi akan gagal bila
+> `dev.db` berisi barang tambahan hasil uji manual — angka seed adalah total
+> untuk **9 barang aktif**. Barang yang baru dibuat lewat form tidak dihapus oleh
+> `npm run seed`, jadi hapus dulu barisnya (atau reset `dev.db` seperti di atas)
+> sebelum menyalahkan aplikasi. Per 16 Oktober 2026 baris uji
+> `INV-2026-0011-ELE` sudah dibersihkan, `dev.db` berisi 10 barang (9 aktif + 1
+> ter-soft-delete), dan hasilnya **236 pemeriksaan, 0 gagal** (16 Oktober 2026).
+
+> Jalankan smoke terhadap **hasil `npm run build`** seperti di atas, bukan
+> terhadap `npm run dev`. Di server dev, pemeriksaan Sampah yang membaca halaman
+> tepat sesudah aksi `Pulihkan`/`Hapus` bisa gagal (3 pemeriksaan) karena
+> halamannya belum memperlihatkan perubahan; pada build produksi jalur yang sama
+> hijau.
+
+> `smoke.ps1` mengambil id barang dari HTML dengan pola yang **dikaitkan ke
+> `href="/items/<id>"`**, bukan pola id yang longgar. Di mode dev, payload RSC
+> ikut memuat jalur modul klien (mis. `restore-item-button.tsx`) yang juga cocok
+> dengan pola longgar sehingga id yang diambil bisa salah. Jangan melonggarkan
+> pola itu kembali.
 
 > Hindari karakter non-ASCII (`×`, `·`) sebagai teks yang dicari di `smoke.ps1`:
 > Windows PowerShell 5.1 membaca skrip UTF-8 tanpa BOM sebagai ANSI sehingga
@@ -87,6 +124,20 @@ konstanta `$secret` di `smoke.ps1` **harus sama** dengan `SESSION_SECRET` di
 > dengan UI 404 di dalam body. Ini perilaku resmi Next.js — `notFound()` dipanggil
 > setelah shell streaming, sehingga status code sudah terkunci di `200`. Next.js
 > menambahkan `<meta name="robots" content="noindex">` sebagai kompensasi.
+
+> Catatan: error runtime ditangani tiga boundary berlapis — `app/global-error.tsx`
+> (root layout sendiri yang gagal; wajib punya `<html>`/`<body>` dan memakai
+> inline style karena `globals.css` belum tentu termuat), `app/error.tsx`
+> (segmen akar, mis. `/login`), dan `app/(app)/error.tsx` (di dalam rangka
+> aplikasi, navbar tetap tampil). Ketiganya memakai `retry()` dari Next 16.3+
+> lewat komponen bersama `src/components/ui/error-fallback.tsx`.
+
+> Catatan: cache `"use cache"` dibuang lewat `updateTag`, bukan `revalidatePath`.
+> Aksi yang menulis `Item`/`ItemMovement` memanggil `invalidateItemCaches()`,
+> sedangkan aksi data master memanggil `invalidateMasterCaches()` — yang terakhir
+> ikut membuang tag `movements` karena tabel pergerakan menampilkan **nama**
+> lokasi; tanpa itu, mengganti nama lokasi meninggalkan nama lama di riwayat
+> sampai `cacheLife("minutes")` habis.
 
 > Catatan: dashboard dan `/items/[id]` memakai `daysUntil()` yang membaca waktu
 > sekarang. Cache Components menolak nilai waktu tidak stabil di dalam shell
@@ -104,18 +155,45 @@ konstanta `$secret` di `smoke.ps1` **harus sama** dengan `SESSION_SECRET` di
   `SUM(price * quantity)` — angka yang sama dengan "Total nilai" di halaman
   detail barang.
 - `Item.deletedAt` menerapkan soft delete: daftar aktif, dashboard, dan ekspor
-  CSV memfilter `deletedAt: null`. Pengecualiannya disengaja — `getItem()` dan
-  `listDeletedItems()` di `src/lib/queries.ts` **tidak** menyaring, supaya
-  barang terhapus tetap bisa dibuka (halaman detailnya menampilkan alert) dan
-  dipulihkan. Menyaring `deletedAt` di `getItem()` membuat aksi pemulihan tidak
-  bisa dijangkau sama sekali.
+  Excel semuanya memfilter `deletedAt: null`. Pengecualiannya disengaja —
+  `getItem()` dan `listDeletedItems()` di `src/lib/queries.ts` **tidak**
+  menyaring, supaya barang terhapus tetap bisa dibuka (halaman detailnya
+  menampilkan alert) dan dipulihkan. Menyaring `deletedAt` di `getItem()` membuat
+  aksi pemulihan tidak bisa dijangkau sama sekali.
 - Data seed memuat satu barang yang sengaja sudah terhapus (`INV-2026-0010`)
   sebagai bahan uji halaman Sampah. Karena ter-soft-delete, angka dashboard dan
-  ekspor CSV **tidak** terpengaruh.
+  ekspor Excel **tidak** terpengaruh.
 - Kolom `Item.searchKey` menyimpan versi lowercase dari kode, nama, merek,
   lokasi, cabang (lokasi/pembeli/pemilik), unit pengelola, supplier, alasan
   pembuangan, dan catatan. Pencarian memakai kolom ini supaya case-insensitive
   dan berperilaku sama di SQLite maupun PostgreSQL.
+- Karena `searchKey` ikut menyalin **nama** relasi, nilainya dihitung ulang
+  setiap kali sumbernya berubah: menyimpan nama/kode data master di `/master`
+  (cabang, unit pengelola, kategori, merek, lokasi, supplier) dan memindahkan
+  barang ke lokasi lain. Tanpa itu, `?q=` masih menemukan barang lewat nama
+  lama dan gagal menemukannya lewat nama baru. Untuk database yang sudah terisi
+  dari versi sebelum perbaikan ini, jalankan `npm run rebuild-search-keys` satu
+  kali (aman diulang; hanya menulis kolom `searchKey`).
+- Menghapus baris data master **ditolak** selama barisnya masih dirujuk, jadi
+  referensi tidak pernah berubah menjadi `null` diam-diam. Semua relasi master
+  memakai `onDelete: SetNull` (`schema.prisma`), sehingga `prisma.*.delete`
+  sebenarnya selalu "berhasil": barang kehilangan kategori/lokasi/unit dan
+  riwayat pergerakan kehilangan nama lokasi. Karena itu keenam `delete*Action` di
+  `src/lib/actions/master.ts` menghitung pemakaian **dan** menghapus di dalam
+  satu `$transaction` (`describeMasterUsage()`), lalu menolak dengan pesan
+  berisi jumlahnya — mis. `Kategori ini masih dipakai oleh 7 barang. Pindahkan
+  atau ganti referensinya dulu sebelum menghapus.` atau `Lokasi ini masih dipakai
+  oleh 5 barang, 36 pergerakan. Riwayat pergerakan tidak boleh kehilangan
+  lokasi.` (angka contoh dari run terakhir; jumlah `pergerakan` bertambah 2
+  setiap kali smoke dijalankan). Pemakaian yang dihitung: cabang
+  (`sourceBranchId`, `ownerBranchId`, atau lokasi miliknya — plus jumlah
+  lokasinya), unit pengelola / kategori / merek / supplier (barang), dan lokasi
+  (barang + `fromLocationId` / `toLocationId` pada pergerakan). Pesannya tampil
+  sebagai `Alert` `role="alert"` di baris yang gagal (`master-manager.tsx`).
+- Karena penghapusan hanya jalan saat pemakainya sudah kosong, menghapus data
+  master **tidak mungkin** meninggalkan `searchKey` basi — tidak ada barang yang
+  masih menunjuk baris itu. Itu sebabnya `refreshItemSearchKeysByIds()` hanya
+  dipakai jalur pindah lokasi (`createMovementAction`), bukan `delete*Action`.
 
 ## Sampah (soft delete & pemulihan)
 
@@ -134,6 +212,10 @@ sehingga riwayat pergerakan dan nilai perolehannya tetap utuh untuk audit.
 - Menghapus juga memaksa `status = DISPOSED`, jadi kolom "Status terakhir" di
   Sampah selalu `Dibuang` dan pemulihan selalu mengembalikan barang ke
   `AVAILABLE` — status sebelum dihapus tidak disimpan.
+- `deleteItemAction` menulis `ItemMovement` beralasan `"Dihapus ke Sampah"`
+  **dalam satu transaksi** bersama perubahan barangnya, jadi penghapusan selalu
+  meninggalkan jejak audit. Status barang dibaca di dalam transaksi yang sama,
+  sehingga mengirim tombol Hapus dua kali tidak menambah catatan kedua.
 - Barang terhapus tidak bisa disunting (`/items/[id]/edit` → not-found) dan
   tidak punya form pergerakan di halaman detailnya, jadi statusnya tidak bisa
   "diubah diam-diam" selama berada di Sampah.
@@ -168,6 +250,43 @@ sehingga riwayat pergerakan dan nilai perolehannya tetap utuh untuk audit.
   bila alamat aplikasi memang dapat diakses dari jaringan itu (bukan
   `localhost`).
 
+## Ekspor Excel (`.xlsx`)
+
+Tombol **Export Excel** di navbar mengunduh `inventaris-<YYYY-MM-DD>.xlsx` dari
+`GET /api/export` (`src/app/api/export/route.ts`). Berkasnya disusun
+`buildInventoryWorkbook()` di `src/lib/excel.ts` memakai `exceljs`, yang butuh
+runtime Node — karena itu `exceljs` didaftarkan di `serverExternalPackages`
+(`next.config.ts`) agar tidak ikut di-bundle Turbopack. Segment config
+`runtime = "nodejs"` sengaja **tidak** dipakai: `cacheComponents` di Next.js 16
+melarangnya, dan runtime Node memang sudah jadi default route handler.
+
+Isi workbook:
+
+| Sheet | Isi |
+| --- | --- |
+| `Ringkasan` | Satu baris per tahun: Jumlah Barang, Total Unit, Total Nilai Perolehan, ditutup baris `TOTAL` + catatan aturan pengelompokan |
+| `2026`, `2025`, … | Satu sheet per **tahun pada kode barang**, tahun terbaru lebih dulu, baris diurutkan per kode |
+| `Tanpa Tahun` | Barang yang kodenya tidak memuat tahun (mis. kode manual lama); hanya dibuat bila ada |
+
+Aturan pengelompokan diambil dari `itemCodeYear()` (`src/lib/constants.ts`,
+regex `/^INV-(\d{4})\b/i`), jadi `INV-2026-0011-LPT` masuk sheet `2026`
+sementara `LAPTOP-01` atau `INV-20260-0001` (tahun 5 digit) masuk
+`Tanpa Tahun`.
+
+Detail penyajian: header dibekukan (`ySplit: 1`), `autoFilter` hanya mencakup
+baris data sehingga baris `TOTAL` tidak ikut tersaring, orientasi **landscape**
+dengan `fitToWidth: 1` supaya 28 kolom muat saat dicetak. Kolom angka dan
+tanggal ditulis sebagai nilai asli Excel, bukan teks — `"Rp"#,##0` untuk
+Harga / Total Nilai / Harga Jual, `#,##0` untuk Jumlah, dan `dd/mm/yyyy` untuk
+keempat kolom tanggal — sehingga bisa langsung dijumlah dan diurutkan di Excel.
+Nilai enum ditulis sebagai label manusia (`ITEM_STATUS_LABELS` dan sejenisnya),
+pemilik aset kosong tampil sebagai `Kantor pusat`, dan unit pengelola sebagai
+`Nama (KODE)`.
+
+Barang ter-soft-delete (`deletedAt` terisi) **tidak** ikut diekspor. Ekspor saat
+ini selalu memuat seluruh dataset aktif dan belum mengikuti filter di
+`/items`.
+
 ## Cabang & pelepasan aset
 
 Tiga dimensi yang sengaja dipisah:
@@ -185,7 +304,8 @@ Tiga dimensi yang sengaja dipisah:
   yang memakai & merawat barang ini sehari-hari" — sengaja dipisah dari
   kategori (barang apa), `assetType` (wujud/akhiran kode), dan lokasi (di mana).
   Satu unit bisa mengelola banyak jenis barang, dan relasinya `onDelete:
-  SetNull` supaya menghapus unit tidak ikut menghapus barangnya.
+  SetNull` supaya menghapus unit tidak ikut menghapus barangnya — penghapusan
+  tetap ditolak selama unit itu masih dipakai barang.
 - Berpindah unit **tidak mengubah kode** yang sudah dicetak di label fisik
   (`generateItemCode()` tidak melihat `departmentId`). Nama & kode unit ikut
   masuk `Item.searchKey`, jadi mengetik `IT` di pencarian langsung menemukan
@@ -209,7 +329,7 @@ Tiga dimensi yang sengaja dipisah:
 - Server yang menyelaraskan metadata pelepasan: `toItemWriteData()` di
   `src/lib/action-utils.ts` membersihkan `disposedAt` / `disposalReason` bila
   status bukan `DISPOSED`, dan `soldAt` / `soldPrice` bila status bukan `SOLD`.
-- Ekspor CSV (`/api/export`) memuat kolom tambahan: `Unit Pengelola`,
+- Ekspor Excel (`/api/export`) memuat kolom tambahan: `Unit Pengelola`,
   `Cabang Lokasi`, `Sumber Perolehan`, `Cabang Pembeli`, `Pemilik Aset`,
   `Tanggal Dibuang`, `Alasan Dibuang`, `Tanggal Jual`, `Harga Jual`.
 

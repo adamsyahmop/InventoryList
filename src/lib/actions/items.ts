@@ -6,6 +6,7 @@ import {
   buildItemSearchKey,
   describeError,
   formToObject,
+  refreshItemSearchKeysByIds,
   toItemWriteData,
   type ActionState,
 } from "@/lib/action-utils";
@@ -163,10 +164,43 @@ export async function deleteItemAction(
   if (!id) return { ok: false, message: "ID barang tidak ditemukan." };
 
   try {
-    await prisma.item.update({
-      where: { id },
-      data: { deletedAt: new Date(), status: "DISPOSED" },
+    // Dibaca di dalam transaksi supaya pengiriman ulang tidak menambah audit.
+    const outcome = await prisma.$transaction(async (tx) => {
+      const item = await tx.item.findUnique({ where: { id } });
+      if (!item) return "missing" as const;
+      if (item.deletedAt) return "already" as const;
+
+      // Perubahan barang dan jejak audit harus berhasil bersama.
+      await tx.item.update({
+        where: { id },
+        data: { deletedAt: new Date(), status: "DISPOSED" },
+      });
+
+      // Tanpa catatan ini, barang bisa hilang dari daftar aktif tanpa jejak di
+      // tabel Pergerakan — padahal menghapus lewat form edit justru mencatatnya.
+      await tx.itemMovement.create({
+        data: {
+          itemId: id,
+          fromLocationId: item.locationId,
+          toLocationId: item.locationId,
+          fromStatus: item.status,
+          toStatus: "DISPOSED",
+          quantity: item.quantity,
+          reason: "Dihapus ke Sampah",
+          movedBy: "admin",
+        },
+      });
+
+      return "deleted" as const;
     });
+
+    if (outcome === "missing") {
+      return { ok: false, message: "Barang tidak ditemukan." };
+    }
+    // Sudah di Sampah: tidak ada yang berubah, jadi cache tidak perlu dibuang.
+    if (outcome === "already") {
+      return { ok: true, message: "Barang sudah ada di Sampah." };
+    }
   } catch (error) {
     return { ok: false, message: describeError(error) };
   }
@@ -275,6 +309,13 @@ export async function createMovementAction(
         data: { locationId: nextLocationId, status: nextStatus },
       });
     });
+
+    // Nama lokasi (beserta cabang lokasinya) tersimpan di `searchKey`, jadi
+    // pindah lokasi wajib menyegarkan kunci. Tanpa ini barang masih ditemukan
+    // lewat nama lokasi lama dan tidak ditemukan lewat nama lokasi baru.
+    if (nextLocationId !== item.locationId) {
+      await refreshItemSearchKeysByIds([itemId]);
+    }
   } catch (error) {
     return { ok: false, message: describeError(error) };
   }
