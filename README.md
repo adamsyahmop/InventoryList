@@ -33,8 +33,8 @@ Variabel lingkungan yang dipakai (`src/lib/session.ts`):
 | Variabel | Fungsi |
 | --- | --- |
 | `DATABASE_URL` | Koneksi database (`file:./dev.db` untuk SQLite) |
-| `APP_PASSWORD` | Password halaman login (default `admin`) |
-| `SESSION_SECRET` | Kunci HMAC penanda tangan cookie sesi |
+| `APP_PASSWORD` | Password halaman login. **Wajib di produksi**; nilai `admin` hanya berlaku di `next dev` |
+| `SESSION_SECRET` | Kunci HMAC penanda tangan cookie sesi, **minimal 32 karakter**. **Wajib di produksi** |
 
 ## Verifikasi (smoke test)
 

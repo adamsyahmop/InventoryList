@@ -1,6 +1,10 @@
 # Catatan Lanjutan — Inventory List
 
-Terakhir diperbarui: 16 Oktober 2026 (sesi lanjutan — **foto barang** selesai
+Terakhir diperbarui: 19 Oktober 2026 (**Paket 6** — rahasia tanpa fallback
+hardcoded: `SESSION_SECRET`/`APP_PASSWORD` kosong, placeholder repo, atau terlalu
+pendek kini membuat aplikasi **melempar error** di produksi; kredensial `.env`
+dirotasi dan `smoke.ps1` disinkronkan — **289 pemeriksaan, 0 gagal**).
+Sebelumnya, 16 Oktober 2026: **foto barang** selesai
 end-to-end: unggah dari form barang & halaman detail, disajikan lewat route
 handler ber-sesi, berkas lama dibersihkan otomatis, dan keterangan **"Foto
 barang berhasil diunggah."** muncul di kartu foto maupun setelah form barang
@@ -31,6 +35,47 @@ setelah perbaikan `searchKey` (Paket 5 #1).
 > membuat 4 pemeriksaan angka dashboard gagal. DB kini persis data seed: 9 barang
 > aktif + 1 barang ter-soft-delete, dan movement yatim 0 (pergerakan barang itu
 > ikut terhapus lewat `onDelete: Cascade`).
+
+## Paket 6 — rahasia tanpa fallback hardcoded (sesi 19 Oktober 2026)
+
+Menutup Tier A #3. `src/lib/session.ts` sebelumnya memakai
+`SESSION_SECRET ?? "dev-only-insecure-secret-change-me"` dan
+`APP_PASSWORD ?? "admin"` — dua nilai yang **tertulis di repo**. Server produksi
+yang lupa memasang `.env` jadi memakai penanda tangan cookie yang publik (cookie
+sesi bisa dipalsukan) sekaligus password login `admin`.
+
+Perubahan:
+
+- `getSessionSecret()` dan `getAppPassword()` (baru) memeriksa env **saat
+  dipanggil**, bukan saat modul diimpor — supaya `next build` tidak menuntut
+  rahasia produksi dan halaman statis tetap bisa di-prerender.
+- Di `NODE_ENV === "production"`, kondisi berikut membuat fungsi **melempar
+  error** dengan pesan yang menyebut variabel bermasalah + cara membuat nilainya:
+  env kosong, `SESSION_SECRET` sama dengan placeholder repo, `SESSION_SECRET`
+  < 32 karakter, `APP_PASSWORD` kosong, atau `APP_PASSWORD` termasuk daftar
+  password yang sudah beredar di repo (`admin`, `password`, `123456`, …).
+- Di `next dev` perilaku lama dipertahankan (fallback `admin` / placeholder)
+  supaya pengembangan lokal tidak butuh `.env` lengkap.
+- `verifyPassword()` membandingkan dengan `getAppPassword()` dan tetap memakai
+  `safeEqual()` (perbandingan waktu-tetap).
+- `.env.example` **tidak lagi** memuat nilai contoh yang lolos: `APP_PASSWORD`
+  dan `SESSION_SECRET` dikosongkan + instruksi pembuatan; `README.md` menandai
+  keduanya **wajib di produksi** (secret minimal 32 karakter).
+- `.env` lokal dirotasi: `SESSION_SECRET` 64 hex baru, `APP_PASSWORD` baru (bukan
+  `admin`). Konstanta `$secret` di `smoke.ps1` disinkronkan (dipakai untuk
+  memeriksa HMAC cookie); password login tetap dibaca skrip dari `.env`.
+
+Verifikasi 19 Oktober 2026: probe langsung ke kedua fungsi untuk 7 kombinasi
+(kosong, placeholder, pendek, password default, valid, dev-fallback) — semua
+sesuai harapan; `npx tsc --noEmit` hijau; `npx eslint src/lib/session.ts` hijau;
+`npm run build` hijau; **`smoke.ps1` 289 pemeriksaan, 0 gagal** (`exit 0`)
+terhadap `next start -p 3100`, termasuk login password baru (303 + cookie) dan
+penolakan password salah.
+
+Catatan untuk sesi berikutnya: bila `.env` di mesin lain masih memakai
+placeholder, aplikasi **sengaja gagal** — itu bukan regresi. Rotasi
+`SESSION_SECRET` membatalkan semua cookie sesi yang beredar (semua pengguna
+harus login ulang).
 
 ## Paket 4 — Kode barang otomatis + QR & label cetak (sesi 12 Oktober 2026)
 
@@ -810,8 +855,9 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
 > adalah posisi **saat audit**, sebelum Paket 5 #1 & #2 — setelah perbaikan,
 > nomornya bergeser. Pakai nama fungsi/field-nya, bukan nomor barisnya.
 
-> Status 16 Oktober 2026: Tier A **butir 1 dan 2 sudah selesai** — lihat "Paket
-> 5 #1" dan "Paket 5 #2" di bawah. Butir 3–5 masih terbuka.
+> Status 19 Oktober 2026: Tier A **butir 1, 2, 3, dan 5 sudah selesai** — lihat
+> "Paket 5 #1", "Paket 5 #2", "Paket 5 #3", dan "Paket 6". Sisa: **butir 4
+> (throttle login)**.
 
 ### Tier A — bug nyata
 
@@ -859,6 +905,9 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
    bisa membaca repo dapat **memalsukan cookie sesi**, dan password login
    menjadi `admin`. Perbaikan: gagal-cepat (`throw`) saat
    `NODE_ENV === "production"` dan env kosong/terlalu pendek.
+   > ✅ **SELESAI 19 Oktober 2026** — lihat "Paket 6" di atas. Yang ditolak di
+   > produksi: env kosong, placeholder repo, `SESSION_SECRET` < 32 karakter, dan
+   > `APP_PASSWORD` yang ada di daftar password contoh repo.
 4. **Login tanpa pembatasan percobaan.** `src/lib/actions/auth.ts:28` hanya
    membandingkan password; satu password dipakai bersama, tanpa throttle atau
    lockout → brute force leluasa. Perbaikan: hitung percobaan gagal per IP per
@@ -912,8 +961,8 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
 
 ### Urutan yang disarankan
 
-1. ✅ Tier A butir 1 (Paket 5 #1) dan butir 2 (Paket 5 #2) **selesai**.
-   Berikutnya butir 3 (rahasia tanpa fallback hardcoded), lalu butir 4–5.
+1. ✅ Tier A butir 1 (Paket 5 #1), butir 2 (Paket 5 #2), butir 3 (Paket 6), dan
+   butir 5 (Paket 5 #3) **selesai**. **Berikutnya: butir 4 — throttle login.**
 2. Tier B: import Excel → ekspor ikut filter → `/movements` filter+paginasi →
    label massal.
 3. Tier C: target DB produksi → backup → CI → unit test.
