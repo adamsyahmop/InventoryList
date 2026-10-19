@@ -1,10 +1,10 @@
 # Catatan Lanjutan — Inventory List
 
-Terakhir diperbarui: 19 Oktober 2026 (**Paket 6 & 7** — Tier A tuntas). Paket 6:
-rahasia tanpa fallback hardcoded (`SESSION_SECRET`/`APP_PASSWORD` kosong,
-placeholder repo, atau terlalu pendek kini **melempar error** di produksi),
-kredensial `.env` dirotasi. Paket 7: **throttle login** per IP (5 kegagalan →
-kunci 15 menit). `smoke.ps1` kini **306 pemeriksaan, 0 gagal**.
+Terakhir diperbarui: 19 Oktober 2026 (**Paket 6, 7, 8** — Tier A tuntas, Tier B
+dimulai). Paket 6: rahasia tanpa fallback hardcoded (env kosong/placeholder/terlalu
+pendek kini **melempar error** di produksi), kredensial `.env` dirotasi. Paket 7:
+**throttle login** per IP (5 kegagalan → kunci 15 menit). Paket 8: **impor `.xlsx`**
+(`/items/import`, laporan per baris). `smoke.ps1` kini **316 pemeriksaan, 0 gagal**.
 Sebelumnya, 16 Oktober 2026: **foto barang** selesai
 end-to-end: unggah dari form barang & halaman detail, disajikan lewat route
 handler ber-sesi, berkas lama dibersihkan otomatis, dan keterangan **"Foto
@@ -24,7 +24,7 @@ Identitas git repo ini: `adamsyahmop` / `adamsyahmop@users.noreply.github.com` (
 `npm run build` hijau (14/14 halaman statis + rute dinamis `/api/export` dan
 `/api/photos/[name]`), `npm run lint`
 hijau, `npx tsc --noEmit` hijau, `npm run seed` hijau, dan smoke test end-to-end
-**306 pemeriksaan, 0 gagal** (`exit 0`) — dijalankan terhadap build produksi
+**316 pemeriksaan, 0 gagal** (`exit 0`) — dijalankan terhadap build produksi
 (`npm run start -- -p 3100`), bukan server dev. Diverifikasi ulang 16 Oktober
 2026 setelah foto barang (Paket 5 #3) dan penolakan hapus data master
 (Paket 5 #2); keterangan **"Foto barang berhasil diunggah."** menambah 4
@@ -36,6 +36,70 @@ setelah perbaikan `searchKey` (Paket 5 #1).
 > membuat 4 pemeriksaan angka dashboard gagal. DB kini persis data seed: 9 barang
 > aktif + 1 barang ter-soft-delete, dan movement yatim 0 (pergerakan barang itu
 > ikut terhapus lewat `onDelete: Cascade`).
+
+## Paket 8 — impor `.xlsx` (sesi 19 Oktober 2026)
+
+Butir pertama Tier B. Sampai sekarang barang hanya bisa dimasukkan satu per satu
+lewat form, padahal berkas `.xlsx` sudah jadi format ekspor aplikasi ini.
+
+Berkas baru:
+
+- `src/lib/item-import.ts` — baca & parse murni. `parseItemWorkbook()` membaca
+  **semua** sheet yang punya baris judul berisi `Nama` (sheet `Ringkasan`
+  dilewati), `buildMasterIndex()` menyiapkan peta nama → id untuk pencocokan.
+- `src/lib/actions/import.ts` — `importItemsAction()`: cek auth, batas ukuran
+  (6 MB) & jenis berkas, lalu menyimpan baris satu per satu.
+- `src/app/(app)/items/import/page.tsx` + `src/components/items/item-import-form.tsx`
+  — halaman + form (`useActionState`), tabel baris gagal (sheet, nomor baris,
+  pesan), dan tautan **Impor .xlsx** di header daftar barang.
+
+Aturan yang dipilih (dan alasannya):
+
+- **Kolom acuan = hasil ekspor sendiri** (`Kode`, `Nama`, `Kategori`, …), dengan
+  beberapa alias untuk berkas buatan tangan (`Nama Barang`, `Harga Beli`, …).
+  Kolom di luar daftar diabaikan; judul tak dikenal tidak dianggap error supaya
+  berkas ekspor versi lama tetap bisa diimpor.
+- **Default untuk kolom kosong**: jumlah 1, satuan `unit`, harga 0, kondisi
+  `Baik`, status `Tersedia`, sumber `Kantor Pusat`. Hanya `Nama` yang wajib.
+- **Validasi akhir memakai `itemSchema`** yang sama dengan form barang, jadi
+  aturan (jumlah ≥ 1, panjang teks, pola kode) tidak bercabang dua.
+- **Data master tidak pernah dibuat otomatis** — nama yang tidak ada di master
+  menjadi error baris. Salah ketik harus terlihat, bukan jadi master sampah.
+  Unit pengelola menerima format ekspor `Nama (KODE)`; kode ikut dicocokkan.
+- **Kode yang sudah dipakai ditolak**, bukan ditimpa. Impor ulang berkas yang
+  sama karenanya melaporkan semua baris sebagai duplikat — idempoten dari sisi
+  "tidak menggandakan data", bukan "menimpa".
+- **Kode kosong** → nomor berikutnya dibuat di memori (sekali hitung `max`
+  sebelum loop), sehingga 100 baris tanpa kode tidak saling menabrak.
+- **Satu baris = satu transaksi** (barang + pergerakan "Pencatatan awal (impor)").
+  Baris gagal tidak membatalkan baris lain, tetapi tidak ada barang yang
+  tersimpan tanpa catatan pergerakannya.
+- **Tanggal divalidasi dengan pemeriksaan balik** (`validDate()`): `31/13/2026`
+  ditolak, bukan digeser diam-diam oleh `new Date()` ke bulan berikutnya. Ini
+  bug yang tertangkap saat menguji fixture, bukan saat menulis kode.
+- Batas 500 baris & 6 MB (`bodySizeLimit` di `next.config.ts` sudah 6mb),
+  laporan error dibatasi 50 baris pertama (jumlah totalnya tetap disebut).
+
+Verifikasi 19 Oktober 2026:
+
+- `npx tsc --noEmit` hijau, `npx eslint` (semua berkas baru) hijau,
+  `npm run build` hijau (rute `/items/import` ikut ter-render).
+- **Uji nyata lewat HTTP** memakai fixture `.xlsx` 5 baris (2 valid, 1 kategori
+  fiktif, 1 kode duplikat, 1 tanggal mustahil, plus sheet `Ringkasan`):
+  hasil `2 barang diimpor, 3 baris dilewati`; ketiga alasan muncul di laporan;
+  baris valid tersimpan dengan `searchKey` terisi, `createdBy=admin`, dan
+  pergerakan `Pencatatan awal (impor)`. Data uji dihapus lagi setelah itu.
+- **`smoke.ps1` 316 pemeriksaan, 0 gagal** (`exit 0`) — 10 di antaranya baru:
+  halaman impor (3), penolakan berkas non-xlsx (2), dan **impor ulang berkas
+  ekspor** (5) yang membuktikan jalur parse + pencocokan kode berjalan pada
+  berkas asli aplikasi (semua baris jadi duplikat, tidak ada data bertambah).
+- Catatan: blok throttle memakai **IP acak per run** sekarang — status kunci
+  disimpan in-memory per proses, jadi IP tetap membuat smoke gagal saat
+  dijalankan dua kali pada server yang sama.
+
+Yang **tidak** dicakup: jalur sukses impor tidak diulang di `smoke.ps1` supaya
+smoke tidak menambah data (diuji manual seperti di atas); foto tidak diimpor;
+impor belum punya mode "perbarui baris yang sudah ada".
 
 ## Paket 7 — throttle login (sesi 19 Oktober 2026)
 
@@ -974,8 +1038,8 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
 
 ### Tier B — fitur bernilai harian
 
-- **Import `.xlsx`.** Belum ada sama sekali — input barang masih satu per satu.
-  Kolom ekspor di `src/lib/excel.ts` bisa dipakai sebagai format acuan.
+- ✅ **SELESAI (Paket 8)** — ~~**Import `.xlsx`.**~~ Halaman `/items/import`
+  menerima berkas berkolom ekspor, laporan per baris, kode duplikat ditolak.
 - **Cetak label massal** → rujuk butir 5 "TODO besok" di atas.
 - **Ekspor mengikuti filter** dan **`/movements` paginasi + filter** → rujuk
   "Kandidat paket berikutnya" di atas.
@@ -1013,8 +1077,8 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
 
 1. ✅ **Tier A tuntas** — butir 1 & 2 (Paket 5 #1–#2), butir 5 (Paket 5 #3),
    butir 3 (Paket 6), butir 4 (Paket 7). **Berikutnya: Tier B — import `.xlsx`.**
-2. Tier B: import Excel → ekspor ikut filter → `/movements` filter+paginasi →
-   label massal.
+2. Tier B: ✅ import Excel (Paket 8). Berikutnya: ekspor ikut filter →
+   `/movements` filter+paginasi → label massal → stock opname.
 3. Tier C: target DB produksi → backup → CI → unit test.
 
 ## Paket 5 #1 — `searchKey` tidak lagi basi (sesi 15 Oktober 2026)

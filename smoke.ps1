@@ -1007,14 +1007,48 @@ if ($photoItemId) {
   Check 'detail barang tanpa foto tersedia untuk uji foto' $false $true
 }
 
+# --- Impor .xlsx (Tier B) ------------------------------------------------------
+# Fixture-nya adalah berkas hasil ekspor aplikasi sendiri: seluruh kodenya sudah
+# ada di database, jadi impor harus melaporkan duplikat per baris — bukan
+# menggandakan data. Jalur sukses (barang benar-benar dibuat) diuji manual saat
+# fitur ini dibuat dan tidak diulang di sini supaya smoke tidak menambah data.
+[Console]::WriteLine('')
+[Console]::WriteLine('=== IMPOR XLSX ===')
+$importPage = Hit '/items/import' $token
+HasText 'halaman impor' $importPage.Body 'Format berkas'
+HasText 'halaman impor punya input berkas' $importPage.Body 'name="file"'
+HasText 'halaman impor menyebut batas baris' $importPage.Body 'baris per berkas'
+
+$txtPath = Join-Path ([IO.Path]::GetTempPath()) ('smoke-impor-' + [Guid]::NewGuid().ToString('N') + '.txt')
+Set-Content -LiteralPath $txtPath -Value 'bukan berkas excel' -Encoding utf8
+$notXlsx = Submit-Action '/items/import' 'Impor barang' 'name="file"' $token @{} @{ file = @{ Path = $txtPath; FileName = 'salah.txt'; ContentType = 'text/plain' } }
+Check 'impor menolak berkas non-xlsx status' $notXlsx.Code 200
+HasText 'impor menolak berkas non-xlsx' $notXlsx.Body 'Berkas harus berformat .xlsx'
+Remove-Item -LiteralPath $txtPath -Force
+
+$exportFixture = Get-Binary '/api/export' $token
+Check 'fixture impor: ekspor tersedia' $exportFixture.Code 200
+if ($exportFixture.Code -eq 200) {
+  $xlsxPath = Join-Path ([IO.Path]::GetTempPath()) ('smoke-impor-' + [Guid]::NewGuid().ToString('N') + '.xlsx')
+  [IO.File]::WriteAllBytes($xlsxPath, $exportFixture.Bytes)
+  $reimport = Submit-Action '/items/import' 'Impor barang' 'name="file"' $token @{} @{ file = @{ Path = $xlsxPath; FileName = 'ekspor.xlsx'; ContentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } }
+  Check 'impor ulang status' $reimport.Code 200
+  HasText 'impor ulang tidak membuat barang baru' $reimport.Body '0 barang diimpor'
+  HasText 'impor ulang melaporkan baris duplikat' $reimport.Body 'baris dilewati'
+  HasText 'impor ulang menyebut kode sudah dipakai' $reimport.Body 'sudah dipakai'
+  Remove-Item -LiteralPath $xlsxPath -Force
+}
+
 # --- Throttle login (Tier A #4) ------------------------------------------------
 # Dijalankan paling akhir karena status kunci disimpan in-memory per proses:
 # lima kegagalan beruntun dari IP yang sama harus mengunci, password yang BENAR
 # pun ditolak selama kunci aktif, dan IP lain tidak boleh ikut terkena.
 [Console]::WriteLine('')
 [Console]::WriteLine('=== THROTTLE LOGIN ===')
-$throttleIp = '203.0.113.7'
-$otherIp = '203.0.113.8'
+# IP acak per run: status kunci disimpan in-memory per proses server, jadi IP
+# tetap akan membuat smoke gagal saat dijalankan dua kali pada server yang sama.
+$throttleIp = '203.0.113.' + (Get-Random -Minimum 1 -Maximum 254)
+$otherIp = '198.51.100.' + (Get-Random -Minimum 1 -Maximum 254)
 $throttleBodies = @()
 for ($i = 1; $i -le 5; $i++) {
   $tries = Submit-Login 'password-salah-throttle' $throttleIp

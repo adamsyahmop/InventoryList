@@ -154,7 +154,14 @@ export default function ItemsPage({
       <PageHeader
         title="Daftar Barang"
         description="Semua barang inventaris beserta lokasi dan statusnya."
-        action={<ButtonLink href="/items/new">+ Tambah Barang</ButtonLink>}
+        action={
+          <div className="flex items-center gap-2">
+            <ButtonLink href="/items/import" variant="outline">
+              Impor .xlsx
+            </ButtonLink>
+            <ButtonLink href="/items/new">+ Tambah Barang</ButtonLink>
+          </div>
+        }
       />
       <Suspense fallback={<TableSkeleton />}>
         <ItemsSection searchParams={searchParams} />

@@ -7,8 +7,9 @@ suffix jenis, mis. `INV-2026-0011-LPT`), nama, merek, jenis/kategori, tanggal
 beli, harga, lokasi, supplier, garansi, kondisi, status, dan **foto barang**
 (diunggah dari HP/komputer) — lengkap dengan cabang (lokasi, pembeli, pemilik),
 metadata pelepasan aset (dibuang / dijual), riwayat pergerakan barang, halaman
-**Sampah** (soft delete + pemulihan), **label QR siap cetak per barang**, serta
-ekspor **Excel (.xlsx)** dengan satu sheet per tahun.
+**Sampah** (soft delete + pemulihan), **label QR siap cetak per barang**, ekspor
+**Excel (.xlsx)** dengan satu sheet per tahun, serta **impor `.xlsx`** untuk
+memasukkan banyak barang sekaligus (lihat `src/lib/item-import.ts`).
 
 Stack: **Next.js 16.4.0** (Turbopack, Cache Components + Partial Prefetching) ·
 **Prisma 7.10.0** · **SQLite** (`dev.db`) · **Zod** · **`qrcode`** (QR SVG
@@ -36,6 +37,24 @@ Variabel lingkungan yang dipakai (`src/lib/session.ts`):
 | `APP_PASSWORD` | Password halaman login. **Wajib di produksi**; nilai `admin` hanya berlaku di `next dev` |
 | `SESSION_SECRET` | Kunci HMAC penanda tangan cookie sesi, **minimal 32 karakter**. **Wajib di produksi** |
 
+## Impor barang (.xlsx)
+
+`/items/import` menerima berkas `.xlsx` dengan kolom seperti hasil ekspor. Aturan
+utamanya:
+
+| Hal | Perilaku |
+| --- | --- |
+| Kolom wajib | `Nama` saja; sisanya berdefault (jumlah 1, satuan `unit`, harga 0, kondisi `Baik`, status `Tersedia`, sumber `Kantor Pusat`) |
+| Kode | Kosong → server membuat nomor berikutnya. Kode yang sudah dipakai **ditolak**, bukan ditimpa (impor ulang berkas yang sama = semua baris dilewati) |
+| Data master | Kategori/merek/unit/lokasi/supplier/cabang dicocokkan **berdasarkan nama** dan harus sudah ada — tidak dibuat otomatis |
+| Tanggal | Tanggal asli Excel atau teks `dd/mm/yyyy`; tanggal mustahil (`31/13/2026`) ditolak |
+| Batas | 500 baris per berkas, 6 MB; sheet yang bukan daftar barang (mis. `Ringkasan`) dilewati |
+| Foto | Tidak ikut diimpor |
+
+Setiap baris bermasalah dilaporkan dengan nama sheet, nomor baris, dan alasannya;
+baris lain tetap masuk. Barang hasil impor mendapat catatan pergerakan
+"Pencatatan awal (impor)" seperti barang yang dibuat lewat form.
+
 ## Verifikasi (smoke test)
 
 `smoke.ps1` menguji runtime end-to-end lewat HTTP: proteksi Proxy tanpa cookie,
@@ -45,8 +64,10 @@ pesan error), semua halaman utama dengan cookie sesi, isi konten penting
 cabang/sumber/unit pengelola, ekspor Excel (berkas .xlsx diperiksa isinya lewat
 `System.IO.Compression`: nama sheet, format angka, dan tanggal asli Excel),
 **penolakan hapus data master yang masih dipakai**, **unggah & penyajian foto
-barang**, empty state filter, UI 404, dan **throttle login** (5 kegagalan per
-IP → kunci 15 menit). Total **306 pemeriksaan**.
+barang**, empty state filter, UI 404, **throttle login** (5 kegagalan per IP →
+kunci 15 menit), dan **impor `.xlsx`** (halaman impor, penolakan berkas non-xlsx,
+serta impor ulang berkas ekspor yang seluruh barisnya jadi duplikat). Total
+**316 pemeriksaan**.
 
 Bagian **SAMPAH** di skrip itu menguji soft delete secara end-to-end: barang
 terhapus tampil di `/items/terhapus` dan absen dari daftar aktif/ekspor Excel,
