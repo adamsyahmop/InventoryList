@@ -69,7 +69,7 @@ function Get-MasterRowId([string]$body, [string]$label) {
 # POST multipart biasa cukup untuk menirukan submit tanpa JavaScript. Ini
 # melatih `verifyPassword()` + `startSession()` di jalur nyata, bukan token
 # HMAC yang dibuat sendiri.
-function Submit-Login([string]$password) {
+function Submit-Login([string]$password, [string]$forwardedFor = '') {
   $page = [System.Net.HttpWebRequest]::Create("$base/login")
   $page.AllowAutoRedirect = $false
   $pageRes = $page.GetResponse()
@@ -97,6 +97,7 @@ function Submit-Login([string]$password) {
   $handler = New-Object System.Net.Http.HttpClientHandler
   $handler.AllowAutoRedirect = $false
   $client = New-Object System.Net.Http.HttpClient($handler)
+  if ($forwardedFor) { $client.DefaultRequestHeaders.Add('X-Forwarded-For', $forwardedFor) }
   $response = $client.PostAsync("$base/login", $form).GetAwaiter().GetResult()
   $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
   $cookie = ''
@@ -469,7 +470,7 @@ Check 'POST /login redirect ke /' $loginOk.Location '/'
 Check 'POST /login set cookie sesi' ([bool]$loginOk.Cookie) $true
 Check 'POST /login password salah status' $loginBad.Status 200
 Check 'POST /login password salah tanpa cookie' ([bool]$loginBad.Cookie) $false
-HasText 'login(gagal)' $loginBad.Body 'Password salah. Coba lagi.'
+HasText 'login(gagal)' $loginBad.Body 'Password salah.'
 Check 'auth GET / dengan cookie hasil login' $dashViaLogin.Code 200
 HasText 'dashboard(via login)' $dashViaLogin.Body '100.350.000'
 
@@ -1005,6 +1006,33 @@ if ($photoItemId) {
 } else {
   Check 'detail barang tanpa foto tersedia untuk uji foto' $false $true
 }
+
+# --- Throttle login (Tier A #4) ------------------------------------------------
+# Dijalankan paling akhir karena status kunci disimpan in-memory per proses:
+# lima kegagalan beruntun dari IP yang sama harus mengunci, password yang BENAR
+# pun ditolak selama kunci aktif, dan IP lain tidak boleh ikut terkena.
+[Console]::WriteLine('')
+[Console]::WriteLine('=== THROTTLE LOGIN ===')
+$throttleIp = '203.0.113.7'
+$otherIp = '203.0.113.8'
+$throttleBodies = @()
+for ($i = 1; $i -le 5; $i++) {
+  $tries = Submit-Login 'password-salah-throttle' $throttleIp
+  Check "throttle gagal #$i status" $tries.Status 200
+  Check "throttle gagal #$i tanpa cookie" $tries.Cookie ''
+  $throttleBodies += $tries.Body
+}
+HasText 'throttle gagal #4 menyebut sisa percobaan' $throttleBodies[3] 'Sisa 1 percobaan'
+HasText 'throttle gagal #5 mengunci' $throttleBodies[4] 'Login dikunci'
+
+$lockedOut = Submit-Login $appPassword $throttleIp
+Check 'throttle: password benar saat terkunci tanpa cookie' $lockedOut.Cookie ''
+Check 'throttle: password benar saat terkunci tidak redirect' $lockedOut.Status 200
+HasText 'throttle: password benar saat terkunci tetap ditolak' $lockedOut.Body 'Terlalu banyak percobaan login'
+
+$unaffected = Submit-Login $appPassword $otherIp
+Check 'throttle: IP lain tetap bisa login' $unaffected.Status 303
+Check 'throttle: IP lain mendapat cookie' ($unaffected.Cookie -ne '') $true
 
 [Console]::WriteLine('')
 foreach ($c in $checks) {

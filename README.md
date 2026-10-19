@@ -45,7 +45,8 @@ pesan error), semua halaman utama dengan cookie sesi, isi konten penting
 cabang/sumber/unit pengelola, ekspor Excel (berkas .xlsx diperiksa isinya lewat
 `System.IO.Compression`: nama sheet, format angka, dan tanggal asli Excel),
 **penolakan hapus data master yang masih dipakai**, **unggah & penyajian foto
-barang**, empty state filter, dan UI 404. Total **289 pemeriksaan**.
+barang**, empty state filter, UI 404, dan **throttle login** (5 kegagalan per
+IP → kunci 15 menit). Total **306 pemeriksaan**.
 
 Bagian **SAMPAH** di skrip itu menguji soft delete secara end-to-end: barang
 terhapus tampil di `/items/terhapus` dan absen dari daftar aktif/ekspor Excel,

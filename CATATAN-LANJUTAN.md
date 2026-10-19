@@ -1,9 +1,10 @@
 # Catatan Lanjutan — Inventory List
 
-Terakhir diperbarui: 19 Oktober 2026 (**Paket 6** — rahasia tanpa fallback
-hardcoded: `SESSION_SECRET`/`APP_PASSWORD` kosong, placeholder repo, atau terlalu
-pendek kini membuat aplikasi **melempar error** di produksi; kredensial `.env`
-dirotasi dan `smoke.ps1` disinkronkan — **289 pemeriksaan, 0 gagal**).
+Terakhir diperbarui: 19 Oktober 2026 (**Paket 6 & 7** — Tier A tuntas). Paket 6:
+rahasia tanpa fallback hardcoded (`SESSION_SECRET`/`APP_PASSWORD` kosong,
+placeholder repo, atau terlalu pendek kini **melempar error** di produksi),
+kredensial `.env` dirotasi. Paket 7: **throttle login** per IP (5 kegagalan →
+kunci 15 menit). `smoke.ps1` kini **306 pemeriksaan, 0 gagal**.
 Sebelumnya, 16 Oktober 2026: **foto barang** selesai
 end-to-end: unggah dari form barang & halaman detail, disajikan lewat route
 handler ber-sesi, berkas lama dibersihkan otomatis, dan keterangan **"Foto
@@ -23,7 +24,7 @@ Identitas git repo ini: `adamsyahmop` / `adamsyahmop@users.noreply.github.com` (
 `npm run build` hijau (14/14 halaman statis + rute dinamis `/api/export` dan
 `/api/photos/[name]`), `npm run lint`
 hijau, `npx tsc --noEmit` hijau, `npm run seed` hijau, dan smoke test end-to-end
-**289 pemeriksaan, 0 gagal** (`exit 0`) — dijalankan terhadap build produksi
+**306 pemeriksaan, 0 gagal** (`exit 0`) — dijalankan terhadap build produksi
 (`npm run start -- -p 3100`), bukan server dev. Diverifikasi ulang 16 Oktober
 2026 setelah foto barang (Paket 5 #3) dan penolakan hapus data master
 (Paket 5 #2); keterangan **"Foto barang berhasil diunggah."** menambah 4
@@ -35,6 +36,54 @@ setelah perbaikan `searchKey` (Paket 5 #1).
 > membuat 4 pemeriksaan angka dashboard gagal. DB kini persis data seed: 9 barang
 > aktif + 1 barang ter-soft-delete, dan movement yatim 0 (pergerakan barang itu
 > ikut terhapus lewat `onDelete: Cascade`).
+
+## Paket 7 — throttle login (sesi 19 Oktober 2026)
+
+Menutup Tier A #4 (butir terakhir Tier A). `loginAction` sebelumnya hanya
+membandingkan password; satu password dipakai bersama, jadi POST `/login`
+berulang bisa menebak tanpa hambatan.
+
+Aturan yang dipakai (`src/lib/login-throttle.ts`):
+
+- kunci per **IP klien** — dari `x-forwarded-for` (hop pertama), lalu `x-real-ip`,
+  lalu `unknown` bila tidak ada header;
+- jendela hitung 15 menit, maksimal **5 kegagalan**; kegagalan ke-5 mengunci IP
+  itu **15 menit**, dan selama kunci aktif password yang benar pun ditolak;
+- login berhasil menghapus catatan IP tersebut;
+- peta dibatasi 1000 IP (entri kedaluwarsa dibuang lebih dulu) supaya memori
+  tidak tumbuh tanpa batas;
+- pesan ke pengguna menyebut sisa percobaan (`Password salah. Sisa 2 percobaan
+  sebelum login dikunci.`), lalu `Login dikunci 15 menit untuk alamat ini.`
+
+Pemeriksaan kunci dilakukan **sebelum** `verifyPassword()`, jadi tidak ada celah
+"tebakan menyelip tepat saat password kebetulan benar". `verifyPassword()` tetap
+waktu-tetap (`safeEqual`).
+
+Status kunci disimpan **in-memory** (`Map` di `globalThis`, supaya tidak dobel
+saat modul di-reload di dev): tidak ada tulis-baca DB di jalur login, tidak perlu
+migrasi, tidak ada IP tersimpan di disk. Konsekuensi yang perlu diketahui:
+
+- kunci hilang saat proses restart — untuk aplikasi satu-instance ini
+  dapat diterima;
+- bila nanti jalan di beberapa instance/worker, `store` harus pindah ke tabel
+  atau Redis supaya kuncinya berlaku menyeluruh;
+- penyerang yang punya banyak IP masih bisa ~5 tebakan per IP; lapisan berikutnya
+  adalah password kuat (sudah, Paket 6), HTTPS, dan rate-limit di reverse proxy.
+  Belum ada backoff bertahap — baru mengunci setelah 5 kegagalan.
+
+Perubahan `smoke.ps1`: `Submit-Login` dapat parameter kedua untuk mengirim
+`X-Forwarded-For` (menguji kunci per IP tanpa saling mengunci), assertion pesan
+gagal dilonggarkan menjadi `Password salah.` (karena kini menyebut sisa
+percobaan), dan blok **THROTTLE LOGIN** dijalankan **paling akhir** karena
+efeknya menempel pada proses server.
+
+Verifikasi 19 Oktober 2026: `npx tsc --noEmit` hijau, `npx eslint` (kedua file)
+hijau, `npm run build` hijau, **`smoke.ps1` 306 pemeriksaan, 0 gagal** (`exit 0`)
+terhadap `next start -p 3100` — 17 di antaranya baru: 5 kegagalan beruntun →
+kunci, password benar saat terkunci tetap ditolak, IP lain tetap bisa login.
+Probe modul langsung: hitungan 5→4→3→2→1, `clearLoginThrottle` mengembalikan
+sisa ke 5, `retryAfterSeconds` 900, dan `loginThrottleKey` benar untuk
+`x-forwarded-for` berantai, `x-real-ip`, maupun tanpa header.
 
 ## Paket 6 — rahasia tanpa fallback hardcoded (sesi 19 Oktober 2026)
 
@@ -855,9 +904,8 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
 > adalah posisi **saat audit**, sebelum Paket 5 #1 & #2 — setelah perbaikan,
 > nomornya bergeser. Pakai nama fungsi/field-nya, bukan nomor barisnya.
 
-> Status 19 Oktober 2026: Tier A **butir 1, 2, 3, dan 5 sudah selesai** — lihat
-> "Paket 5 #1", "Paket 5 #2", "Paket 5 #3", dan "Paket 6". Sisa: **butir 4
-> (throttle login)**.
+> Status 19 Oktober 2026: **seluruh Tier A (butir 1–5) sudah selesai** — lihat
+> "Paket 5 #1", "Paket 5 #2", "Paket 5 #3", "Paket 6", dan "Paket 7".
 
 ### Tier A — bug nyata
 
@@ -912,6 +960,8 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
    membandingkan password; satu password dipakai bersama, tanpa throttle atau
    lockout → brute force leluasa. Perbaikan: hitung percobaan gagal per IP per
    jendela waktu, balas lambat atau kunci sementara.
+   > ✅ **SELESAI 19 Oktober 2026** — lihat "Paket 7" di atas. 5 kegagalan per IP
+   > → kunci 15 menit (password benar pun ditolak), status in-memory per proses.
 5. ✅ **SELESAI (Paket 5 #3).** ~~**`Item.photoUrl` praktis mati.** Field,
    validasi, dan input teks ada (`src/components/items/item-form.tsx`), tetapi
    nilainya tidak dirender di mana pun lagi: bukan di `/items/[id]`, bukan di
@@ -961,8 +1011,8 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
 
 ### Urutan yang disarankan
 
-1. ✅ Tier A butir 1 (Paket 5 #1), butir 2 (Paket 5 #2), butir 3 (Paket 6), dan
-   butir 5 (Paket 5 #3) **selesai**. **Berikutnya: butir 4 — throttle login.**
+1. ✅ **Tier A tuntas** — butir 1 & 2 (Paket 5 #1–#2), butir 5 (Paket 5 #3),
+   butir 3 (Paket 6), butir 4 (Paket 7). **Berikutnya: Tier B — import `.xlsx`.**
 2. Tier B: import Excel → ekspor ikut filter → `/movements` filter+paginasi →
    label massal.
 3. Tier C: target DB produksi → backup → CI → unit test.
