@@ -1,10 +1,10 @@
 # Catatan Lanjutan — Inventory List
 
-Terakhir diperbarui: 19 Oktober 2026 (**Paket 6, 7, 8** — Tier A tuntas, Tier B
-dimulai). Paket 6: rahasia tanpa fallback hardcoded (env kosong/placeholder/terlalu
-pendek kini **melempar error** di produksi), kredensial `.env` dirotasi. Paket 7:
-**throttle login** per IP (5 kegagalan → kunci 15 menit). Paket 8: **impor `.xlsx`**
-(`/items/import`, laporan per baris). `smoke.ps1` kini **316 pemeriksaan, 0 gagal**.
+Terakhir diperbarui: 19 Oktober 2026 (**Paket 6–9** — Tier A tuntas, Tier B 2/6).
+Paket 6: rahasia tanpa fallback hardcoded. Paket 7: **throttle login** per IP.
+Paket 8: **impor `.xlsx`** (`/items/import`, laporan per baris). Paket 9: **ekspor
+mengikuti filter** (`/api/export?…` + tombol toolbar). `smoke.ps1` kini
+**329 pemeriksaan, 0 gagal**.
 Sebelumnya, 16 Oktober 2026: **foto barang** selesai
 end-to-end: unggah dari form barang & halaman detail, disajikan lewat route
 handler ber-sesi, berkas lama dibersihkan otomatis, dan keterangan **"Foto
@@ -24,7 +24,7 @@ Identitas git repo ini: `adamsyahmop` / `adamsyahmop@users.noreply.github.com` (
 `npm run build` hijau (14/14 halaman statis + rute dinamis `/api/export` dan
 `/api/photos/[name]`), `npm run lint`
 hijau, `npx tsc --noEmit` hijau, `npm run seed` hijau, dan smoke test end-to-end
-**316 pemeriksaan, 0 gagal** (`exit 0`) — dijalankan terhadap build produksi
+**329 pemeriksaan, 0 gagal** (`exit 0`) — dijalankan terhadap build produksi
 (`npm run start -- -p 3100`), bukan server dev. Diverifikasi ulang 16 Oktober
 2026 setelah foto barang (Paket 5 #3) dan penolakan hapus data master
 (Paket 5 #2); keterangan **"Foto barang berhasil diunggah."** menambah 4
@@ -36,6 +36,50 @@ setelah perbaikan `searchKey` (Paket 5 #1).
 > membuat 4 pemeriksaan angka dashboard gagal. DB kini persis data seed: 9 barang
 > aktif + 1 barang ter-soft-delete, dan movement yatim 0 (pergerakan barang itu
 > ikut terhapus lewat `onDelete: Cascade`).
+
+## Paket 9 — ekspor mengikuti filter (sesi 19 Oktober 2026)
+
+Butir kedua Tier B. `/api/export` dulu tidak menerima parameter apa pun: selalu
+seluruh barang aktif, padahal halaman `/items` bisa difilter. Akibatnya berkas
+yang diunduh bisa berbeda dengan yang dilihat pengguna — sumber kesalahan yang
+khas saat orang mengira sudah mengirim "data yang tersaring".
+
+Perubahan:
+
+- `src/lib/item-filter-params.ts` (baru) — `parseItemFilters()` membaca sekaligus
+  **memvalidasi** query string (status/kondisi/sumber yang tidak dikenal dibuang,
+  `sort` jatuh ke `newest`, `page` dijaga ≥ 1), `hasActiveFilters()`, dan
+  `toExportQuery()` untuk menyusun tautan ekspor.
+- `src/lib/queries.ts` — `buildItemWhere()` dan `itemOrderBy()` diekstrak dari
+  `listItems()`. Halaman daftar dan ekspor kini memakai **satu rumus filter**;
+  kalau aturannya ditulis dua kali, cepat atau lambat keduanya berbeda.
+- `src/app/api/export/route.ts` — `GET(request)` membaca query, memakai
+  `buildItemWhere()`, menambahkan akhiran `-terfilter` pada nama berkas, dan
+  header `X-Export-Filter` untuk penelusuran unduhan.
+- `src/app/(app)/items/page.tsx` — `parseSearchParams()` memakai parser bersama,
+  jadi daftar konstanta status/kondisi/sumber yang dulu diduplikasi di halaman
+  sudah hilang.
+- `src/components/items/items-toolbar.tsx` — tombol **"Ekspor .xlsx"** (tanpa
+  filter) / **"Ekspor hasil filter"** (dengan filter) yang membawa query aktif.
+  Ekspor penuh tetap tersedia di navbar.
+
+Keputusan kecil: `sort` **tidak** ikut dikirim ke ekspor karena isi sheet selalu
+diurutkan menurut kode barang per tahun (`groupItemsByCodeYear`) — mengirim
+urutan tampilan hanya akan menyesatkan.
+
+Verifikasi 19 Oktober 2026: `npx tsc --noEmit` hijau, `npx eslint` hijau,
+`npm run build` hijau, **`smoke.ps1` 329 pemeriksaan, 0 gagal** (`exit 0`).
+13 pemeriksaan baru: `?q=INV-2026-0009` memuat kode itu dan **tidak** memuat
+`INV-2026-0001`; `?status=DISPOSED` memuat `INV-2026-0008` tanpa `INV-2026-0002`;
+`?status=LOST` (tidak ada hasil) tetap 200 tanpa sheet tahun; nama berkas
+berakhiran `-terfilter`; ekspor penuh tanpa akhiran itu; toolbar di
+`/items?status=LOST` memuat "Ekspor hasil filter" dan `/api/export?status=LOST`,
+sedangkan `/items` polos memuat "Ekspor .xlsx".
+
+Temuan saat menguji: assertion pertama ("berkas tanpa hasil tidak memuat
+`INV-2026-`") salah sasaran — sheet `Ringkasan` memuat catatan penjelas
+`INV-2026-… → 2026`, jadi pemeriksaannya diarahkan ke kode barang konkret dan ke
+ada/tidaknya sheet tahun.
 
 ## Paket 8 — impor `.xlsx` (sesi 19 Oktober 2026)
 
@@ -1041,8 +1085,8 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
 - ✅ **SELESAI (Paket 8)** — ~~**Import `.xlsx`.**~~ Halaman `/items/import`
   menerima berkas berkolom ekspor, laporan per baris, kode duplikat ditolak.
 - **Cetak label massal** → rujuk butir 5 "TODO besok" di atas.
-- **Ekspor mengikuti filter** dan **`/movements` paginasi + filter** → rujuk
-  "Kandidat paket berikutnya" di atas.
+- ✅ **SELESAI (Paket 9)** — ekspor mengikuti filter.
+- **`/movements` paginasi + filter** → rujuk "Kandidat paket berikutnya" di atas.
 - **Stock opname** (pengecekan fisik berkala + catat selisih temuan) — belum
   tercatat di catatan mana pun, padahal ini alur wajib inventaris dan QR-nya
   sudah siap dipakai.
@@ -1077,8 +1121,8 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
 
 1. ✅ **Tier A tuntas** — butir 1 & 2 (Paket 5 #1–#2), butir 5 (Paket 5 #3),
    butir 3 (Paket 6), butir 4 (Paket 7). **Berikutnya: Tier B — import `.xlsx`.**
-2. Tier B: ✅ import Excel (Paket 8). Berikutnya: ekspor ikut filter →
-   `/movements` filter+paginasi → label massal → stock opname.
+2. Tier B: ✅ import Excel (Paket 8), ✅ ekspor ikut filter (Paket 9).
+   Berikutnya: `/movements` filter+paginasi → label massal → stock opname.
 3. Tier C: target DB produksi → backup → CI → unit test.
 
 ## Paket 5 #1 — `searchKey` tidak lagi basi (sesi 15 Oktober 2026)

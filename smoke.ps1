@@ -284,9 +284,10 @@ function Submit-Action([string]$path, [string]$buttonText, [string]$idContains, 
 # sebagai teks seperti CSV dulu. Berkas diunduh ke file sementara lalu diperiksa
 # lewat ZipFile: nama sheet dari `xl/workbook.xml`, seluruh teks sel dari
 # `xl/sharedStrings.xml`, dan format angka dari `xl/styles.xml`.
-function Get-Export([string]$cookie) {
-  $file = Join-Path $env:TEMP 'smoke-export.xlsx'
-  $req = [System.Net.HttpWebRequest]::Create("$base/api/export")
+function Get-Export([string]$cookie, [string]$query = '') {
+  $path = "/api/export$query"
+  $file = Join-Path $env:TEMP ('smoke-export-' + [Guid]::NewGuid().ToString('N') + '.xlsx')
+  $req = [System.Net.HttpWebRequest]::Create("$base$path")
   $req.AllowAutoRedirect = $false
   $req.Timeout = 30000
   if ($cookie) { $req.Headers.Add('Cookie', "inventory_session=$cookie") }
@@ -302,7 +303,7 @@ function Get-Export([string]$cookie) {
     $length = (Get-Item -LiteralPath $file).Length
   }
   $res.Close()
-  $line = "{0,-50} {1,-4} {2,-24} {3,-26} len={4}" -f '/api/export', $code, '', $ct, $length
+  $line = "{0,-50} {1,-4} {2,-24} {3,-26} len={4}" -f $path, $code, '', $ct, $length
   [Console]::WriteLine($line)
   return [pscustomobject]@{ Code = $code; ContentType = $ct; Disposition = $disp; File = $file; Length = $length }
 }
@@ -498,6 +499,37 @@ Check 'api/export memuat baris TOTAL' ($exportText.Contains('TOTAL (')) $true
 Check 'api/export format rupiah Excel' ($exportStyles.Contains('&quot;Rp&quot;#,##0')) $true
 Check 'api/export format tanggal Excel' ($exportStyles.Contains('dd/mm/yyyy')) $true
 Check 'api/export tanggal beli berupa tanggal' ([regex]::IsMatch($exportYearSheet, '<c r="K2"[^>]*><v>[\d.]+</v>')) $true
+
+Check 'ekspor penuh tanpa penanda terfilter' ($export.Disposition -notlike '*-terfilter*') $true
+
+# --- Ekspor mengikuti filter (Tier B) -----------------------------------------
+# Berkas yang diunduh harus berisi barang yang sama dengan yang tampil di layar.
+$filtered = Get-Export $token '?q=INV-2026-0009'
+Check 'ekspor terfilter status' $filtered.Code 200
+Check 'ekspor terfilter menandai nama berkas' ($filtered.Disposition -like '*-terfilter.xlsx*') $true
+$filteredText = Read-ZipEntry $filtered.File 'xl/sharedStrings.xml'
+Check 'ekspor terfilter memuat barang yang cocok' ($filteredText.Contains('INV-2026-0009')) $true
+Check 'ekspor terfilter tidak memuat barang lain' ($filteredText.Contains('INV-2026-0001')) $false
+
+$statusExport = Get-Export $token '?status=DISPOSED'
+$statusText = Read-ZipEntry $statusExport.File 'xl/sharedStrings.xml'
+Check 'ekspor filter status memuat barang dibuang' ($statusText.Contains('INV-2026-0008')) $true
+Check 'ekspor filter status tanpa barang tersedia' ($statusText.Contains('INV-2026-0002')) $false
+
+# Filter yang tidak cocok apa pun tetap menghasilkan berkas sah (bukan 500).
+$emptyExport = Get-Export $token '?status=LOST'
+Check 'ekspor terfilter tanpa hasil status' $emptyExport.Code 200
+$emptyText = Read-ZipEntry $emptyExport.File 'xl/sharedStrings.xml'
+# Catatan penjelas di sheet Ringkasan memang memuat tulisan "INV-2026-…", jadi
+# yang diperiksa adalah kode barang sungguhan dan tidak adanya sheet tahun.
+Check 'ekspor terfilter tanpa hasil tidak memuat kode barang' ($emptyText.Contains('INV-2026-0001')) $false
+$emptySheets = Read-ZipEntry $emptyExport.File 'xl/workbook.xml'
+Check 'ekspor terfilter tanpa hasil tanpa sheet tahun' ($emptySheets.Contains('name="2026"')) $false
+
+$filteredPage = Hit '/items?status=LOST' $token
+HasText 'toolbar ekspor mengikuti filter' $filteredPage.Body 'Ekspor hasil filter'
+HasText 'toolbar ekspor memuat query aktif' $filteredPage.Body '/api/export?status=LOST'
+HasText 'toolbar ekspor tanpa filter' (Hit '/items' $token).Body 'Ekspor .xlsx'
 
 HasText 'dashboard' $dash.Body 'Jenis barang'
 # Kartu depan kini memakai JUMLAH aset aktif, bukan nilai rupiahnya.

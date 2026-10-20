@@ -72,17 +72,16 @@ const SORT_MAP: Record<ItemSort, Prisma.ItemOrderByWithRelationInput[]> = {
   price_asc: [{ price: "asc" }],
 };
 
-export async function listItems(filters: ItemFilters): Promise<ItemListResult> {
-  "use cache";
-  cacheTag(CACHE_TAGS.items);
-  cacheLife("minutes");
-
-  const page = Math.max(1, Math.floor(filters.page ?? 1));
+/**
+ * Rumus filter daftar barang, dipakai bersama oleh halaman `/items` dan ekspor
+ * `/api/export`. Satu rumus supaya berkas yang diunduh berisi barang yang sama
+ * dengan yang terlihat di layar — kalau aturannya ditulis dua kali, cepat atau
+ * lambat keduanya berbeda.
+ */
+export function buildItemWhere(filters: ItemFilters): Prisma.ItemWhereInput {
   const q = filters.q?.trim().toLowerCase() ?? "";
 
-  // searchKey sudah lowercase sejak ditulis, jadi `contains` di sini
-  // berperilaku sama di SQLite maupun PostgreSQL.
-  const where: Prisma.ItemWhereInput = {
+  return {
     deletedAt: null,
     ...(filters.status ? { status: filters.status } : {}),
     ...(filters.condition ? { condition: filters.condition } : {}),
@@ -95,12 +94,30 @@ export async function listItems(filters: ItemFilters): Promise<ItemListResult> {
       : {}),
     ...(q ? { searchKey: { contains: q } } : {}),
   };
+}
+
+export function itemOrderBy(
+  sort: ItemSort | undefined,
+): Prisma.ItemOrderByWithRelationInput[] {
+  return SORT_MAP[sort ?? "newest"];
+}
+
+export async function listItems(filters: ItemFilters): Promise<ItemListResult> {
+  "use cache";
+  cacheTag(CACHE_TAGS.items);
+  cacheLife("minutes");
+
+  const page = Math.max(1, Math.floor(filters.page ?? 1));
+
+  // searchKey sudah lowercase sejak ditulis, jadi `contains` di sana berperilaku
+  // sama di SQLite maupun PostgreSQL (lihat `buildItemWhere`).
+  const where = buildItemWhere(filters);
 
   const [items, total] = await prisma.$transaction([
     prisma.item.findMany({
       where,
       include: ITEM_INCLUDE,
-      orderBy: SORT_MAP[filters.sort ?? "newest"],
+      orderBy: itemOrderBy(filters.sort),
       skip: (page - 1) * ITEMS_PER_PAGE,
       take: ITEMS_PER_PAGE,
     }),

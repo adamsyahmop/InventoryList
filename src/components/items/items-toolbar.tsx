@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { Button, ButtonLink } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/form-controls";
 import {
   ACQUISITION_SOURCE_LABELS,
@@ -14,6 +14,7 @@ import {
   ItemCondition,
   ItemStatus,
 } from "@/generated/prisma/enums";
+import { toExportQuery } from "@/lib/item-filter-params";
 
 export type ItemFilterValues = {
   q: string;
@@ -271,9 +272,26 @@ export function ItemsToolbar({
         ) : null}
       </div>
 
-      <p className="mt-2 text-xs text-neutral-500">
-        {pending ? "Memuat…" : `${total} barang ditemukan`}
-      </p>
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <p className="text-xs text-neutral-500">
+          {pending ? "Memuat…" : `${total} barang ditemukan`}
+        </p>
+        {/* Berkas yang diunduh memakai filter yang sedang aktif, bukan seluruh
+            data — dulu tombol ekspor hanya ada di navbar dan selalu mengekspor
+            semuanya. */}
+        <ButtonLink
+          href={`/api/export${toExportQuery(values)}`}
+          variant="outline"
+          size="sm"
+          title={
+            hasFilter
+              ? "Unduh .xlsx berisi barang yang sedang ditampilkan"
+              : "Unduh seluruh barang"
+          }
+        >
+          {hasFilter ? "Ekspor hasil filter" : "Ekspor .xlsx"}
+        </ButtonLink>
+      </div>
     </div>
   );
 }

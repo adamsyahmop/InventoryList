@@ -12,6 +12,7 @@ import {
   ItemCondition,
   ItemStatus,
 } from "@/generated/prisma/enums";
+import { parseItemFilters } from "@/lib/item-filter-params";
 import { getMasterData, listItems, type ItemSort } from "@/lib/queries";
 import { firstParam } from "@/lib/utils";
 
@@ -19,34 +20,26 @@ export const metadata: Metadata = { title: "Barang" };
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
-const STATUS_VALUES = Object.values(ItemStatus) as string[];
-const CONDITION_VALUES = Object.values(ItemCondition) as string[];
-const SOURCE_VALUES = Object.values(AcquisitionSource) as string[];
-const SORT_VALUES = ["newest", "oldest", "name", "price_desc", "price_asc"];
-
 function parseSearchParams(params: SearchParams) {
-  const statusRaw = firstParam(params.status) ?? "";
-  const conditionRaw = firstParam(params.condition) ?? "";
-  const sourceRaw = firstParam(params.acquisitionSource) ?? "";
-  const sortRaw = firstParam(params.sort) ?? "newest";
-  const pageRaw = Number(firstParam(params.page) ?? "1");
+  // Nilai divalidasi di satu tempat (`parseItemFilters`) supaya halaman daftar
+  // dan ekspor `.xlsx` tidak mungkin memakai aturan filter yang berbeda.
+  const { filters, page } = parseItemFilters({
+    get: (key) => firstParam(params[key]) ?? null,
+  });
 
-  const filters: ItemFilterValues = {
-    q: firstParam(params.q) ?? "",
-    status: STATUS_VALUES.includes(statusRaw) ? statusRaw : "",
-    condition: CONDITION_VALUES.includes(conditionRaw) ? conditionRaw : "",
-    categoryId: firstParam(params.categoryId) ?? "",
-    departmentId: firstParam(params.departmentId) ?? "",
-    locationId: firstParam(params.locationId) ?? "",
-    branchId: firstParam(params.branchId) ?? "",
-    acquisitionSource: SOURCE_VALUES.includes(sourceRaw) ? sourceRaw : "",
-    sort: SORT_VALUES.includes(sortRaw) ? sortRaw : "newest",
+  const values: ItemFilterValues = {
+    q: filters.q ?? "",
+    status: filters.status ?? "",
+    condition: filters.condition ?? "",
+    categoryId: filters.categoryId ?? "",
+    departmentId: filters.departmentId ?? "",
+    locationId: filters.locationId ?? "",
+    branchId: filters.branchId ?? "",
+    acquisitionSource: filters.acquisitionSource ?? "",
+    sort: filters.sort ?? "newest",
   };
 
-  const page =
-    Number.isFinite(pageRaw) && pageRaw > 0 ? Math.floor(pageRaw) : 1;
-
-  return { filters, page };
+  return { filters: values, page };
 }
 
 function TableSkeleton() {

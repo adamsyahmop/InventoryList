@@ -8,8 +8,9 @@ beli, harga, lokasi, supplier, garansi, kondisi, status, dan **foto barang**
 (diunggah dari HP/komputer) — lengkap dengan cabang (lokasi, pembeli, pemilik),
 metadata pelepasan aset (dibuang / dijual), riwayat pergerakan barang, halaman
 **Sampah** (soft delete + pemulihan), **label QR siap cetak per barang**, ekspor
-**Excel (.xlsx)** dengan satu sheet per tahun, serta **impor `.xlsx`** untuk
-memasukkan banyak barang sekaligus (lihat `src/lib/item-import.ts`).
+**Excel (.xlsx)** dengan satu sheet per tahun (mengikuti filter yang sedang
+dipakai di daftar barang), serta **impor `.xlsx`** untuk memasukkan banyak
+barang sekaligus (lihat `src/lib/item-import.ts`).
 
 Stack: **Next.js 16.4.0** (Turbopack, Cache Components + Partial Prefetching) ·
 **Prisma 7.10.0** · **SQLite** (`dev.db`) · **Zod** · **`qrcode`** (QR SVG
@@ -66,8 +67,9 @@ cabang/sumber/unit pengelola, ekspor Excel (berkas .xlsx diperiksa isinya lewat
 **penolakan hapus data master yang masih dipakai**, **unggah & penyajian foto
 barang**, empty state filter, UI 404, **throttle login** (5 kegagalan per IP →
 kunci 15 menit), dan **impor `.xlsx`** (halaman impor, penolakan berkas non-xlsx,
-serta impor ulang berkas ekspor yang seluruh barisnya jadi duplikat). Total
-**316 pemeriksaan**.
+serta impor ulang berkas ekspor yang seluruh barisnya jadi duplikat), dan
+**ekspor mengikuti filter** (isi berkas, nama `-terfilter`, serta tombol toolbar
+membawa query aktif). Total **329 pemeriksaan**.
 
 Bagian **SAMPAH** di skrip itu menguji soft delete secara end-to-end: barang
 terhapus tampil di `/items/terhapus` dan absen dari daftar aktif/ekspor Excel,
