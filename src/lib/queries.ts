@@ -169,20 +169,124 @@ export async function getItemMovements(itemId: string) {
   });
 }
 
-export async function listRecentMovements(take = 50) {
+/**
+ * Filter riwayat pergerakan. `status` memakai **status akhir** (`toStatus`) —
+ * pertanyaan yang biasa diajukan saat audit: "apa saja yang berakhir di
+ * Perbaikan?". Perbandingan lokasi lama vs baru tidak bisa dilakukan di SQL
+ * tanpa kolom turunan, jadi tidak dijanjikan di sini.
+ */
+export type MovementFilters = {
+  q?: string;
+  reason?: string;
+  status?: ItemStatus | "";
+  /** Tanggal `yyyy-mm-dd`, inklusif. */
+  from?: string;
+  to?: string;
+  page?: number;
+};
+
+export const MOVEMENTS_PER_PAGE = 25;
+
+const MOVEMENT_INCLUDE = {
+  item: { select: { id: true, code: true, name: true } },
+  fromLocation: true,
+  toLocation: true,
+} satisfies Prisma.ItemMovementInclude;
+
+export type MovementWithRelations = Prisma.ItemMovementGetPayload<{
+  include: typeof MOVEMENT_INCLUDE;
+}>;
+
+export type MovementListResult = {
+  movements: MovementWithRelations[];
+  total: number;
+  page: number;
+  pageCount: number;
+};
+
+/**
+ * Tanggal `yyyy-mm-dd` → Date. Ditolak bila tidak "bulat" (mis. `2026-02-31`),
+ * supaya salah ketik tidak diam-diam bergeser ke bulan berikutnya.
+ */
+function parseDay(value: string | undefined, endOfDay = false): Date | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec((value ?? "").trim());
+  if (!match) return undefined;
+
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(
+    year,
+    month - 1,
+    day,
+    endOfDay ? 23 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 999 : 0,
+  );
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return undefined;
+  }
+  return date;
+}
+
+export function buildMovementWhere(
+  filters: MovementFilters,
+): Prisma.ItemMovementWhereInput {
+  const q = filters.q?.trim() ?? "";
+  const reason = filters.reason?.trim() ?? "";
+  const from = parseDay(filters.from);
+  const to = parseDay(filters.to, true);
+
+  return {
+    ...(q
+      ? {
+          item: {
+            OR: [{ name: { contains: q } }, { code: { contains: q } }],
+          },
+        }
+      : {}),
+    ...(reason
+      ? { OR: [{ reason: { contains: reason } }, { notes: { contains: reason } }] }
+      : {}),
+    ...(filters.status ? { toStatus: filters.status } : {}),
+    ...(from || to
+      ? { movedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }
+      : {}),
+  };
+}
+
+/** Riwayat pergerakan berpaginasi + filter (sebelumnya hanya "N terakhir"). */
+export async function listMovements(
+  filters: MovementFilters,
+): Promise<MovementListResult> {
   "use cache";
   cacheTag(CACHE_TAGS.movements);
   cacheLife("minutes");
 
-  return prisma.itemMovement.findMany({
-    include: {
-      item: { select: { id: true, code: true, name: true } },
-      fromLocation: true,
-      toLocation: true,
-    },
-    orderBy: { movedAt: "desc" },
-    take,
-  });
+  const page = Math.max(1, Math.floor(filters.page ?? 1));
+  const where = buildMovementWhere(filters);
+
+  const [movements, total] = await prisma.$transaction([
+    prisma.itemMovement.findMany({
+      where,
+      include: MOVEMENT_INCLUDE,
+      orderBy: { movedAt: "desc" },
+      skip: (page - 1) * MOVEMENTS_PER_PAGE,
+      take: MOVEMENTS_PER_PAGE,
+    }),
+    prisma.itemMovement.count({ where }),
+  ]);
+
+  return {
+    movements,
+    total,
+    page,
+    pageCount: Math.max(1, Math.ceil(total / MOVEMENTS_PER_PAGE)),
+  };
 }
 
 /** Semua data master sekaligus, dipakai untuk mengisi dropdown di form. */

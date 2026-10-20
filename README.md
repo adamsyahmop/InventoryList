@@ -6,7 +6,8 @@ Aplikasi pencatatan inventaris barang: kode unik (boleh dibuat otomatis dengan
 suffix jenis, mis. `INV-2026-0011-LPT`), nama, merek, jenis/kategori, tanggal
 beli, harga, lokasi, supplier, garansi, kondisi, status, dan **foto barang**
 (diunggah dari HP/komputer) — lengkap dengan cabang (lokasi, pembeli, pemilik),
-metadata pelepasan aset (dibuang / dijual), riwayat pergerakan barang, halaman
+metadata pelepasan aset (dibuang / dijual), riwayat pergerakan barang (bisa
+difilter per barang/alasan/status/tanggal, berpaginasi), halaman
 **Sampah** (soft delete + pemulihan), **label QR siap cetak per barang**, ekspor
 **Excel (.xlsx)** dengan satu sheet per tahun (mengikuti filter yang sedang
 dipakai di daftar barang), serta **impor `.xlsx`** untuk memasukkan banyak
@@ -69,7 +70,9 @@ barang**, empty state filter, UI 404, **throttle login** (5 kegagalan per IP →
 kunci 15 menit), dan **impor `.xlsx`** (halaman impor, penolakan berkas non-xlsx,
 serta impor ulang berkas ekspor yang seluruh barisnya jadi duplikat), dan
 **ekspor mengikuti filter** (isi berkas, nama `-terfilter`, serta tombol toolbar
-membawa query aktif). Total **329 pemeriksaan**.
+membawa query aktif), dan **`/movements` filter + paginasi** (cari barang, alasan,
+status akhir, rentang tanggal; nilai asing jatuh ke default). Total
+**347 pemeriksaan**.
 
 Bagian **SAMPAH** di skrip itu menguji soft delete secara end-to-end: barang
 terhapus tampil di `/items/terhapus` dan absen dari daftar aktif/ekspor Excel,

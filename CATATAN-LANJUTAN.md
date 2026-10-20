@@ -1,10 +1,9 @@
 # Catatan Lanjutan — Inventory List
 
-Terakhir diperbarui: 19 Oktober 2026 (**Paket 6–9** — Tier A tuntas, Tier B 2/6).
+Terakhir diperbarui: 19 Oktober 2026 (**Paket 6–10** — Tier A tuntas, Tier B 3/6).
 Paket 6: rahasia tanpa fallback hardcoded. Paket 7: **throttle login** per IP.
-Paket 8: **impor `.xlsx`** (`/items/import`, laporan per baris). Paket 9: **ekspor
-mengikuti filter** (`/api/export?…` + tombol toolbar). `smoke.ps1` kini
-**329 pemeriksaan, 0 gagal**.
+Paket 8: **impor `.xlsx`**. Paket 9: **ekspor mengikuti filter**. Paket 10:
+**`/movements` filter + paginasi**. `smoke.ps1` kini **347 pemeriksaan, 0 gagal**.
 Sebelumnya, 16 Oktober 2026: **foto barang** selesai
 end-to-end: unggah dari form barang & halaman detail, disajikan lewat route
 handler ber-sesi, berkas lama dibersihkan otomatis, dan keterangan **"Foto
@@ -24,7 +23,7 @@ Identitas git repo ini: `adamsyahmop` / `adamsyahmop@users.noreply.github.com` (
 `npm run build` hijau (14/14 halaman statis + rute dinamis `/api/export` dan
 `/api/photos/[name]`), `npm run lint`
 hijau, `npx tsc --noEmit` hijau, `npm run seed` hijau, dan smoke test end-to-end
-**329 pemeriksaan, 0 gagal** (`exit 0`) — dijalankan terhadap build produksi
+**347 pemeriksaan, 0 gagal** (`exit 0`) — dijalankan terhadap build produksi
 (`npm run start -- -p 3100`), bukan server dev. Diverifikasi ulang 16 Oktober
 2026 setelah foto barang (Paket 5 #3) dan penolakan hapus data master
 (Paket 5 #2); keterangan **"Foto barang berhasil diunggah."** menambah 4
@@ -36,6 +35,53 @@ setelah perbaikan `searchKey` (Paket 5 #1).
 > membuat 4 pemeriksaan angka dashboard gagal. DB kini persis data seed: 9 barang
 > aktif + 1 barang ter-soft-delete, dan movement yatim 0 (pergerakan barang itu
 > ikut terhapus lewat `onDelete: Cascade`).
+
+## Paket 10 — `/movements`: filter + paginasi (sesi 19 Oktober 2026)
+
+Butir ketiga Tier B. Halaman pergerakan sebelumnya hanya menampilkan
+`listRecentMovements(100)` — tanpa filter, tanpa halaman. Untuk jejak audit itu
+terlalu tumpul: tidak bisa menjawab "apa saja yang berubah di barang ini" atau
+"apa yang terjadi bulan lalu".
+
+Perubahan:
+
+- `src/lib/queries.ts` — `MovementFilters`, `buildMovementWhere()`,
+  `MOVEMENTS_PER_PAGE = 25`, dan `listMovements()` (menggantikan
+  `listRecentMovements()`; hanya halaman ini yang memakainya).
+  Filter: `q` (nama **atau** kode barang), `reason` (alasan **atau** keterangan),
+  `status` (status akhir `toStatus`), `from`/`to` (tanggal lokal, inklusif).
+  Tanggal divalidasi "bulat" — `2026-02-31` diabaikan, bukan digeser ke Maret.
+- `src/components/movements/movements-toolbar.tsx` (baru) — cari barang & alasan
+  (debounce 350 ms), status akhir, rentang tanggal, reset, jumlah catatan.
+- `src/app/(app)/movements/page.tsx` — filter dibaca & divalidasi di halaman
+  (status asing, halaman bukan angka, tanggal mustahil → default), tabel
+  berpaginasi dengan "Halaman X dari Y" + tombol Sebelumnya/Berikutnya.
+
+Keputusan: roadmap menyebut "jenis perubahan", tetapi membandingkan lokasi lama
+≠ baru tidak bisa dinyatakan di `where` Prisma tanpa kolom turunan (perlu
+migrasi + backfill). Yang dipakai: **status akhir** + teks alasan/keterangan —
+keduanya bisa dijawab database hari ini. Kalau nanti benar-benar perlu
+kategori perpindahan vs perubahan status, tambahkan kolom `kind` di
+`ItemMovement` dan isi di satu tempat (`movementSchema`).
+
+Verifikasi 19 Oktober 2026: `npx tsc --noEmit` hijau, `npx eslint` hijau,
+`npm run build` hijau, **`smoke.ps1` 347 pemeriksaan, 0 gagal** (`exit 0`).
+18 pemeriksaan baru: `?q=INV-2026-0001` memuat kode itu tanpa `INV-2026-0010`;
+`?reason=Pemulihan` memuat "Pemulihan dari Sampah" tanpa "Dihapus ke Sampah";
+`?status=MAINTENANCE` memuat "Perbaikan hidrolik" tanpa baris pemulihan;
+`?q=zzzznothing` menampilkan empty state; `?from=2000-01-01&to=2000-12-31` kosong;
+`?page=2` menampilkan "Halaman 2 dari 4" (79 catatan → 4 halaman);
+`?status=BOGUS&page=abc&from=2026-02-31` tetap halaman 1.
+
+Dua temuan saat verifikasi (keduanya di uji, bukan di kode utama):
+
+1. Teks `Halaman {page} dari {pageCount}` dipecah React jadi tiga text node
+   dengan penanda `<!-- -->`, sehingga assertion `'Halaman 2 dari'` tidak pernah
+   cocok walau halamannya benar. Diubah menjadi satu template literal — satu
+   text node, stabil untuk diuji dan sama tampilannya.
+2. Asumsi "tidak ada pergerakan berstatus SOLD" salah (seed punya satu baris
+   `SOLD`). Pemeriksaan empty state dipindah ke pencarian yang memang tidak ada,
+   dan filter status diuji dengan status yang benar-benar menyaring.
 
 ## Paket 9 — ekspor mengikuti filter (sesi 19 Oktober 2026)
 
@@ -1086,7 +1132,7 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
   menerima berkas berkolom ekspor, laporan per baris, kode duplikat ditolak.
 - **Cetak label massal** → rujuk butir 5 "TODO besok" di atas.
 - ✅ **SELESAI (Paket 9)** — ekspor mengikuti filter.
-- **`/movements` paginasi + filter** → rujuk "Kandidat paket berikutnya" di atas.
+- ✅ **SELESAI (Paket 10)** — `/movements` paginasi + filter.
 - **Stock opname** (pengecekan fisik berkala + catat selisih temuan) — belum
   tercatat di catatan mana pun, padahal ini alur wajib inventaris dan QR-nya
   sudah siap dipakai.
@@ -1121,8 +1167,9 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
 
 1. ✅ **Tier A tuntas** — butir 1 & 2 (Paket 5 #1–#2), butir 5 (Paket 5 #3),
    butir 3 (Paket 6), butir 4 (Paket 7). **Berikutnya: Tier B — import `.xlsx`.**
-2. Tier B: ✅ import Excel (Paket 8), ✅ ekspor ikut filter (Paket 9).
-   Berikutnya: `/movements` filter+paginasi → label massal → stock opname.
+2. Tier B: ✅ import Excel (Paket 8), ✅ ekspor ikut filter (Paket 9),
+   ✅ `/movements` filter+paginasi (Paket 10). Berikutnya: **label massal** →
+   stock opname → penyusutan → multi-user.
 3. Tier C: target DB produksi → backup → CI → unit test.
 
 ## Paket 5 #1 — `searchKey` tidak lagi basi (sesi 15 Oktober 2026)

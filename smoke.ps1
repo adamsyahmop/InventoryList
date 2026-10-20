@@ -579,6 +579,44 @@ HasText 'items/new' $newItem.Body 'Tambah Barang'
 HasText 'movements' $movements.Body 'Riwayat pergerakan terbaru'
 HasText 'movements' $movements.Body 'catatan terakhir'
 HasText 'movements' $movements.Body 'Gudang A'
+
+# --- Pergerakan: filter + paginasi (Tier B) -----------------------------------
+$movementQ = Hit '/movements?q=INV-2026-0001' $token
+Check 'movements filter q status' $movementQ.Code 200
+HasText 'movements filter q memuat barang yang cocok' $movementQ.Body 'INV-2026-0001'
+HasText 'movements filter q tanpa barang lain' $movementQ.Body 'INV-2026-0010' $false
+
+$movementReason = Hit '/movements?reason=Pemulihan' $token
+Check 'movements filter alasan status' $movementReason.Code 200
+HasText 'movements filter alasan' $movementReason.Body 'Pemulihan dari Sampah'
+HasText 'movements filter alasan tanpa catatan hapus' $movementReason.Body 'Dihapus ke Sampah' $false
+
+# Filter status akhir: hanya baris yang berakhir di status itu.
+$movementStatus = Hit '/movements?status=MAINTENANCE' $token
+Check 'movements filter status status' $movementStatus.Code 200
+HasText 'movements filter status memuat baris cocok' $movementStatus.Body 'Perbaikan hidrolik'
+HasText 'movements filter status tanpa status lain' $movementStatus.Body 'Pemulihan dari Sampah' $false
+
+# Pencarian tanpa hasil → empty state, bukan 500.
+$movementNone = Hit '/movements?q=zzzznothing' $token
+Check 'movements filter kosong status' $movementNone.Code 200
+HasText 'movements filter kosong empty state' $movementNone.Body 'Tidak ada pergerakan yang cocok'
+
+# Rentang tanggal di luar data.
+$movementDate = Hit '/movements?from=2000-01-01&to=2000-12-31' $token
+Check 'movements filter tanggal status' $movementDate.Code 200
+HasText 'movements filter tanggal kosong' $movementDate.Body 'Tidak ada pergerakan yang cocok'
+
+$movementPage2 = Hit '/movements?page=2' $token
+Check 'movements halaman 2 status' $movementPage2.Code 200
+HasText 'movements halaman 2 label' $movementPage2.Body 'Halaman 2 dari'
+HasText 'movements halaman 1 punya navigasi' $movements.Body 'Halaman 1 dari'
+
+# Nilai asing (status tak dikenal, halaman bukan angka, tanggal mustahil) harus
+# diabaikan, bukan diteruskan ke Prisma.
+$movementBad = Hit '/movements?status=BOGUS&page=abc&from=2026-02-31' $token
+Check 'movements filter tidak valid status' $movementBad.Code 200
+HasText 'movements filter tidak valid jatuh ke halaman 1' $movementBad.Body 'Halaman 1 dari'
 HasText 'master' $master.Body 'MasterManager'
 HasText 'master' $master.Body 'Unit kerja pemilik aset'
 HasText 'master' $master.Body 'Kode cabang'
