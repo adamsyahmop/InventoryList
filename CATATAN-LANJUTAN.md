@@ -1,9 +1,10 @@
 # Catatan Lanjutan — Inventory List
 
-Terakhir diperbarui: 19 Oktober 2026 (**Paket 6–10** — Tier A tuntas, Tier B 3/6).
+Terakhir diperbarui: 19 Oktober 2026 (**Paket 6–11** — Tier A tuntas, Tier B 4/6).
 Paket 6: rahasia tanpa fallback hardcoded. Paket 7: **throttle login** per IP.
 Paket 8: **impor `.xlsx`**. Paket 9: **ekspor mengikuti filter**. Paket 10:
-**`/movements` filter + paginasi**. `smoke.ps1` kini **347 pemeriksaan, 0 gagal**.
+**`/movements` filter + paginasi**. Paket 11: **label massal**. `smoke.ps1` kini
+**360 pemeriksaan, 0 gagal**.
 Sebelumnya, 16 Oktober 2026: **foto barang** selesai
 end-to-end: unggah dari form barang & halaman detail, disajikan lewat route
 handler ber-sesi, berkas lama dibersihkan otomatis, dan keterangan **"Foto
@@ -23,7 +24,7 @@ Identitas git repo ini: `adamsyahmop` / `adamsyahmop@users.noreply.github.com` (
 `npm run build` hijau (14/14 halaman statis + rute dinamis `/api/export` dan
 `/api/photos/[name]`), `npm run lint`
 hijau, `npx tsc --noEmit` hijau, `npm run seed` hijau, dan smoke test end-to-end
-**347 pemeriksaan, 0 gagal** (`exit 0`) — dijalankan terhadap build produksi
+**360 pemeriksaan, 0 gagal** (`exit 0`) — dijalankan terhadap build produksi
 (`npm run start -- -p 3100`), bukan server dev. Diverifikasi ulang 16 Oktober
 2026 setelah foto barang (Paket 5 #3) dan penolakan hapus data master
 (Paket 5 #2); keterangan **"Foto barang berhasil diunggah."** menambah 4
@@ -35,6 +36,53 @@ setelah perbaikan `searchKey` (Paket 5 #1).
 > membuat 4 pemeriksaan angka dashboard gagal. DB kini persis data seed: 9 barang
 > aktif + 1 barang ter-soft-delete, dan movement yatim 0 (pergerakan barang itu
 > ikut terhapus lewat `onDelete: Cascade`).
+
+## Paket 11 — label massal (sesi 19 Oktober 2026)
+
+Butir keempat Tier B. Sampai sekarang label hanya bisa dicetak satu per satu dari
+`/items/[id]/label` — untuk 40 barang baru berarti 40 kali buka halaman. Yang
+ditambahkan: **`/items/labels`**, satu halaman berisi label untuk barang hasil
+filter.
+
+Perubahan:
+
+- `src/app/(app)/items/labels/page.tsx` (baru) — menerima query string yang sama
+  dengan `/items`, membaca filter lewat `parseItemFilters()` (parser yang juga
+  dipakai `/api/export`, jadi tidak ada aturan filter kedua), lalu merender grid
+  label: QR + kode + nama + lokasi. Aturan cetak `@page A4` + `break-inside-avoid`
+  supaya satu label tidak terbelah antarlembar.
+- `src/components/items/items-toolbar.tsx` — tombol **Cetak label** di samping
+  ekspor, membawa `toExportQuery(values)` yang sedang aktif.
+
+Keputusan:
+
+- **Isi label massal lebih ringkas daripada label satuan.** Kode, nama, lokasi.
+  Status & kondisi sengaja tidak dicetak: dua field itu paling sering berubah,
+  jadi label fisik akan cepat berbohong; kode dan nama justru yang dipakai untuk
+  mencocokkan barang.
+- **Filter bukan pilihan lewat checkbox, tapi lewat URL.** Pengguna menyaring di
+  `/items` seperti biasa lalu menekan Cetak label — satu jalur logika, dan hasil
+  cetak tidak mungkin berbeda dari yang terlihat.
+- **Batas `LABELS_MAX` (default 200, bisa lewat env).** Satu QR ≈ 1,5 KB SVG;
+  filter tanpa saringan pada data besar akan menghasilkan halaman beberapa MB.
+  Kalau terpotong, halaman menyebut "dibatasi dari N barang" alih-alih diam-diam
+  mencetak sebagian.
+
+Verifikasi 19 Oktober 2026: `npx tsc --noEmit` hijau, `npx eslint` hijau,
+`npm run build` hijau (`/items/labels` terdeteksi dinamis), **`smoke.ps1` 360
+pemeriksaan, 0 gagal** (`exit 0`). 13 pemeriksaan baru: toolbar `/items`
+menautkan `/items/labels`; halaman penuh memuat "label siap dicetak", `<svg`,
+`print-area`, kode barang pertama & terakhir; `?q=INV-2026-0001` hanya memuat
+barang itu (tanpa `INV-2026-0009-PC`); `?q=zzzznothing` → empty state; tanpa sesi
+→ 307 ke `/login?next=%2Fitems%2Flabels`.
+
+Jalur pemotongan `LABELS_MAX` **tidak** tercakup smoke (butuh >200 barang), jadi
+diuji terpisah: server dijalankan dengan `LABELS_MAX=3` di port 3101 → halaman
+menampilkan "3 label siap dicetak (dibatasi dari 9 barang …)" dengan tepat 3 QR.
+
+Belum: label belum bisa dicetak per **halaman daftar** (selalu seluruh hasil
+filter), dan belum ada pilihan ukuran label (mis. 1 label per baris untuk printer
+stiker). Ukuran sekarang 3 kolom di A4.
 
 ## Paket 10 — `/movements`: filter + paginasi (sesi 19 Oktober 2026)
 
@@ -1130,7 +1178,7 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
 
 - ✅ **SELESAI (Paket 8)** — ~~**Import `.xlsx`.**~~ Halaman `/items/import`
   menerima berkas berkolom ekspor, laporan per baris, kode duplikat ditolak.
-- **Cetak label massal** → rujuk butir 5 "TODO besok" di atas.
+- ✅ **SELESAI (Paket 11)** — label massal di `/items/labels` (ikut filter).
 - ✅ **SELESAI (Paket 9)** — ekspor mengikuti filter.
 - ✅ **SELESAI (Paket 10)** — `/movements` paginasi + filter.
 - **Stock opname** (pengecekan fisik berkala + catat selisih temuan) — belum
@@ -1168,8 +1216,8 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
 1. ✅ **Tier A tuntas** — butir 1 & 2 (Paket 5 #1–#2), butir 5 (Paket 5 #3),
    butir 3 (Paket 6), butir 4 (Paket 7). **Berikutnya: Tier B — import `.xlsx`.**
 2. Tier B: ✅ import Excel (Paket 8), ✅ ekspor ikut filter (Paket 9),
-   ✅ `/movements` filter+paginasi (Paket 10). Berikutnya: **label massal** →
-   stock opname → penyusutan → multi-user.
+   ✅ `/movements` filter+paginasi (Paket 10), ✅ label massal (Paket 11).
+   Berikutnya: **stock opname** → penyusutan → multi-user.
 3. Tier C: target DB produksi → backup → CI → unit test.
 
 ## Paket 5 #1 — `searchKey` tidak lagi basi (sesi 15 Oktober 2026)

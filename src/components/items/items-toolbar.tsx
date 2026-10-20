@@ -279,18 +279,32 @@ export function ItemsToolbar({
         {/* Berkas yang diunduh memakai filter yang sedang aktif, bukan seluruh
             data — dulu tombol ekspor hanya ada di navbar dan selalu mengekspor
             semuanya. */}
-        <ButtonLink
-          href={`/api/export${toExportQuery(values)}`}
-          variant="outline"
-          size="sm"
-          title={
-            hasFilter
-              ? "Unduh .xlsx berisi barang yang sedang ditampilkan"
-              : "Unduh seluruh barang"
-          }
-        >
-          {hasFilter ? "Ekspor hasil filter" : "Ekspor .xlsx"}
-        </ButtonLink>
+        <div className="flex items-center gap-2">
+          <ButtonLink
+            href={`/items/labels${toExportQuery(values)}`}
+            variant="outline"
+            size="sm"
+            title={
+              hasFilter
+                ? "Cetak label QR untuk barang yang sedang ditampilkan"
+                : "Cetak label QR seluruh barang"
+            }
+          >
+            Cetak label
+          </ButtonLink>
+          <ButtonLink
+            href={`/api/export${toExportQuery(values)}`}
+            variant="outline"
+            size="sm"
+            title={
+              hasFilter
+                ? "Unduh .xlsx berisi barang yang sedang ditampilkan"
+                : "Unduh seluruh barang"
+            }
+          >
+            {hasFilter ? "Ekspor hasil filter" : "Ekspor .xlsx"}
+          </ButtonLink>
+        </div>
       </div>
     </div>
   );

@@ -814,6 +814,33 @@ if ($detail) {
   HasText 'label tautan ke detail' $label.Body "/items/$itemId"
 }
 
+# --- Label massal (Tier B) -----------------------------------------------------
+# Label satuan ada di /items/[id]/label; halaman ini mencetak banyak label
+# sekaligus untuk barang hasil filter, memakai parser filter yang sama dengan
+# /items dan /api/export.
+$itemsPage = Hit '/items' $token
+HasText 'toolbar daftar menautkan cetak label' $itemsPage.Body '/items/labels'
+
+$bulkLabels = Hit '/items/labels' $token
+Check 'labels massal status' $bulkLabels.Code 200
+HasText 'labels massal jumlah' $bulkLabels.Body 'label siap dicetak'
+Check 'labels massal QR berupa <svg>' ($bulkLabels.Body.Contains('<svg')) $true
+HasText 'labels massal aturan cetak' $bulkLabels.Body 'print-area'
+HasText 'labels massal memuat barang pertama' $bulkLabels.Body 'INV-2026-0001-LPT'
+HasText 'labels massal memuat barang terakhir' $bulkLabels.Body 'INV-2026-0009-PC'
+
+$bulkFiltered = Hit '/items/labels?q=INV-2026-0001' $token
+Check 'labels filter status' $bulkFiltered.Code 200
+HasText 'labels filter memuat barang cocok' $bulkFiltered.Body 'INV-2026-0001-LPT'
+HasText 'labels filter tanpa barang lain' $bulkFiltered.Body 'INV-2026-0009-PC' $false
+
+$bulkEmpty = Hit '/items/labels?q=zzzznothing' $token
+Check 'labels kosong status' $bulkEmpty.Code 200
+HasText 'labels kosong empty state' $bulkEmpty.Body 'Tidak ada barang yang cocok'
+
+$bulkAnon = Hit '/items/labels' $null
+Check 'labels massal tanpa sesi dialihkan ke login' ($bulkAnon.Location -like '*/login*') $true
+
 # --- Sampah: soft delete & pemulihan -----------------------------------------
 # Menutup celah yang dulu membuat bug `getItem()` lolos: jalur hapus/pulihkan
 # tidak pernah diuji. Seed menyediakan INV-2026-0010 yang sudah dihapus, dan di
