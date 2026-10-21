@@ -17,6 +17,7 @@ export const CACHE_TAGS = {
   movements: "movements",
   master: "master",
   dashboard: "dashboard",
+  opnames: "opnames",
 } as const;
 
 /**
@@ -498,3 +499,62 @@ export async function listExpiringWarranty(days = 60) {
   });
 }
 
+/**
+ * Ringkasan satu sesi opname untuk halaman daftar. Angka progress dihitung di
+ * sini (bukan di komponen) supaya tabel dan judul memakai sumber yang sama.
+ */
+export type OpnameSummary = {
+  id: string;
+  code: string;
+  status: "OPEN" | "CLOSED";
+  scopeLabel: string;
+  startedAt: Date;
+  closedAt: Date | null;
+  lineCount: number;
+  countedCount: number;
+  differenceCount: number;
+};
+
+export async function listOpnames(): Promise<OpnameSummary[]> {
+  "use cache";
+  cacheTag(CACHE_TAGS.opnames);
+  cacheLife("minutes");
+
+  const rows = await prisma.stockOpname.findMany({
+    include: {
+      lines: { select: { countedQty: true, expectedQty: true } },
+    },
+    orderBy: { startedAt: "desc" },
+    take: 50,
+  });
+
+  return rows.map((row) => ({
+    id: row.id,
+    code: row.code,
+    status: row.status,
+    scopeLabel: row.scopeLabel,
+    startedAt: row.startedAt,
+    closedAt: row.closedAt,
+    lineCount: row.lines.length,
+    countedCount: row.lines.filter((line) => line.countedQty !== null).length,
+    differenceCount: row.lines.filter(
+      (line) => line.countedQty !== null && line.countedQty !== line.expectedQty,
+    ).length,
+  }));
+}
+
+/** Satu sesi opname lengkap dengan baris hitungnya, urut kode barang. */
+export async function getOpname(id: string) {
+  "use cache";
+  cacheTag(CACHE_TAGS.opnames);
+  cacheLife("minutes");
+
+  return prisma.stockOpname.findUnique({
+    where: { id },
+    include: {
+      location: true,
+      branch: true,
+      lines: { orderBy: { itemCode: "asc" } },
+    },
+  });
+}

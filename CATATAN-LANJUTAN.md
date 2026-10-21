@@ -1,10 +1,11 @@
 # Catatan Lanjutan — Inventory List
 
-Terakhir diperbarui: 19 Oktober 2026 (**Paket 6–11** — Tier A tuntas, Tier B 4/6).
+Terakhir diperbarui: 20 Oktober 2026 (**Paket 6–12** — Tier A tuntas, Tier B 5/6).
 Paket 6: rahasia tanpa fallback hardcoded. Paket 7: **throttle login** per IP.
 Paket 8: **impor `.xlsx`**. Paket 9: **ekspor mengikuti filter**. Paket 10:
-**`/movements` filter + paginasi**. Paket 11: **label massal**. `smoke.ps1` kini
-**360 pemeriksaan, 0 gagal**.
+**`/movements` filter + paginasi**. Paket 11: **label massal**. Paket 12:
+**stock opname** (`/opname`, model `StockOpname`/`StockOpnameLine`). `smoke.ps1`
+kini **384 pemeriksaan, 0 gagal**.
 Sebelumnya, 16 Oktober 2026: **foto barang** selesai
 end-to-end: unggah dari form barang & halaman detail, disajikan lewat route
 handler ber-sesi, berkas lama dibersihkan otomatis, dan keterangan **"Foto
@@ -24,7 +25,7 @@ Identitas git repo ini: `adamsyahmop` / `adamsyahmop@users.noreply.github.com` (
 `npm run build` hijau (14/14 halaman statis + rute dinamis `/api/export` dan
 `/api/photos/[name]`), `npm run lint`
 hijau, `npx tsc --noEmit` hijau, `npm run seed` hijau, dan smoke test end-to-end
-**360 pemeriksaan, 0 gagal** (`exit 0`) — dijalankan terhadap build produksi
+**384 pemeriksaan, 0 gagal** (`exit 0`) — dijalankan terhadap build produksi
 (`npm run start -- -p 3100`), bukan server dev. Diverifikasi ulang 16 Oktober
 2026 setelah foto barang (Paket 5 #3) dan penolakan hapus data master
 (Paket 5 #2); keterangan **"Foto barang berhasil diunggah."** menambah 4
@@ -36,6 +37,65 @@ setelah perbaikan `searchKey` (Paket 5 #1).
 > membuat 4 pemeriksaan angka dashboard gagal. DB kini persis data seed: 9 barang
 > aktif + 1 barang ter-soft-delete, dan movement yatim 0 (pergerakan barang itu
 > ikut terhapus lewat `onDelete: Cascade`).
+
+## Paket 12 — stock opname (sesi 20 Oktober 2026)
+
+Butir kelima Tier B, dan yang paling besar: alur wajib inventaris yang selama ini
+tidak ada sama sekali. Sebelumnya stok hanya bisa **diubah** lewat form barang
+(`quantity`), tanpa cara membandingkannya dengan hitungan fisik.
+
+Model baru (migrasi `20261020101609_add_stock_opname`):
+
+- `StockOpname` — satu sesi: `code` (`OPN-2026-0001`), `status` (OPEN/CLOSED),
+  `scopeLabel` + `locationId`/`branchId`, `startedAt`, `closedAt`, `createdBy`.
+- `StockOpnameLine` — satu baris per barang: snapshot `itemCode`/`itemName`/
+  `locationName`, `expectedQty` (stok sistem saat sesi dimulai), `countedQty`
+  (`null` = belum dihitung), `note`, `countedAt`.
+
+Alur tiga langkah, sengaja bisa ditinggal di tengah:
+
+1. **Mulai** (`startOpnameAction`) — kunci lingkup, lalu salin stok sistem ke
+   baris-baris. Lingkup: semua barang aktif, satu cabang, atau satu lokasi
+   (memilih cabang **dan** lokasi sekaligus ditolak — lokasi sudah di dalam
+   cabang).
+2. **Hitung** (`saveOpnameCountsAction`) — simpan per baris, boleh sebagian,
+   boleh berkali-kali. Hanya baris milik sesi itu yang disentuh.
+3. **Tutup** (`closeOpnameAction`) — satu transaksi: stok barang diubah ke angka
+   fisik, satu baris `ItemMovement` ditulis per barang yang selisih (dengan
+   `quantity` = selisih, bisa negatif), lalu sesi jadi CLOSED.
+
+Keputusan yang perlu diingat:
+
+- **Snapshot, bukan angka hidup.** `expectedQty` dibekukan saat sesi mulai. Kalau
+  ada barang keluar saat orang masih menghitung, pembandingnya tetap angka awal —
+  kalau tidak, "selisih" bisa muncul hanya karena stok bergerak di tengah sesi.
+- **Belum dihitung ≠ nol.** Baris kosong (`countedQty = null`) tidak dianggap 0
+  dan tidak diubah saat penutupan; yang dihitung nol justru temuan penting, jadi
+  input dibiarkan kosong dan hanya `0` yang diketik yang berarti nol.
+- **Penutupan menolak sesi tanpa satu pun hitungan.** Menutup sesi kosong akan
+  "menghapus" stok hanya karena tombol tertekan lebih awal.
+- **Sesi tertutup tidak bisa diubah.** Jejak opname yang sudah final tidak
+  bergeser; koreksi berikutnya adalah sesi baru.
+- **Barang yang dihapus (soft delete) tetap tercatat di baris opname**, tapi
+  stoknya tidak disentuh lagi saat penutupan.
+- **Lingkup di luar "semua barang" memakai `buildItemWhere`** — rumus filter yang
+  sama dengan `/items` dan ekspor, jadi definisi "barang di lokasi X" tidak
+  ditulis ulang.
+
+Verifikasi 20 Oktober 2026: `npx prisma generate` (client baru), `npx tsc
+--noEmit` hijau, `npx eslint` hijau, `npm run build` hijau, **`smoke.ps1` 384
+pemeriksaan, 0 gagal** (`exit 0`). 24 pemeriksaan baru menjalankan alur penuh
+lewat HTTP: sesi tanpa hitungan ditolak, jumlah `abc` ditolak, simpan 9 baris,
+progress `9/9`, tutup → `1 barang disesuaikan`, halaman jadi arsip (form hitung
+hilang), dan `/movements` memuat `Stock opname OPN-…`. Sesi kedua mengembalikan
+stok ke angka semula sehingga gate bisa dijalankan berulang; dibuktikan langsung
+ke `dev.db`: dua sesi CLOSED berisi 9 baris, selisih `+1` lalu `-1`, dua baris
+pergerakan dengan catatan `Stok sistem 3 → fisik 4` dan sebaliknya, dan
+`quantity` seluruh barang **identik** dengan sebelum uji.
+
+Belum tercakup: lembar hitung belum punya pencarian/filter (daftar panjang harus
+digulir; untuk ratusan barang perlu kotak cari atau memindai QR yang sudah ada di
+label), belum ada opname per kategori/unit, dan belum ada ekspor hasil opname.
 
 ## Paket 11 — label massal (sesi 19 Oktober 2026)
 
@@ -1181,9 +1241,8 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
 - ✅ **SELESAI (Paket 11)** — label massal di `/items/labels` (ikut filter).
 - ✅ **SELESAI (Paket 9)** — ekspor mengikuti filter.
 - ✅ **SELESAI (Paket 10)** — `/movements` paginasi + filter.
-- **Stock opname** (pengecekan fisik berkala + catat selisih temuan) — belum
-  tercatat di catatan mana pun, padahal ini alur wajib inventaris dan QR-nya
-  sudah siap dipakai.
+- ✅ **SELESAI (Paket 12)** — stock opname di `/opname` (snapshot stok, hitung
+  per baris, tutup → selisih diterapkan + pergerakan).
 - **Penyusutan & laporan "hasil penjualan vs nilai buku"** → rujuk "Sisa ide".
 - **Multi-user & peran** → rujuk "Kandidat paket berikutnya".
 
@@ -1216,8 +1275,9 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
 1. ✅ **Tier A tuntas** — butir 1 & 2 (Paket 5 #1–#2), butir 5 (Paket 5 #3),
    butir 3 (Paket 6), butir 4 (Paket 7). **Berikutnya: Tier B — import `.xlsx`.**
 2. Tier B: ✅ import Excel (Paket 8), ✅ ekspor ikut filter (Paket 9),
-   ✅ `/movements` filter+paginasi (Paket 10), ✅ label massal (Paket 11).
-   Berikutnya: **stock opname** → penyusutan → multi-user.
+   ✅ `/movements` filter+paginasi (Paket 10), ✅ label massal (Paket 11),
+   ✅ stock opname (Paket 12). Berikutnya: **penyusutan / laporan nilai buku** →
+   multi-user.
 3. Tier C: target DB produksi → backup → CI → unit test.
 
 ## Paket 5 #1 — `searchKey` tidak lagi basi (sesi 15 Oktober 2026)

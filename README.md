@@ -72,7 +72,7 @@ serta impor ulang berkas ekspor yang seluruh barisnya jadi duplikat), dan
 **ekspor mengikuti filter** (isi berkas, nama `-terfilter`, serta tombol toolbar
 membawa query aktif), dan **`/movements` filter + paginasi** (cari barang, alasan,
 status akhir, rentang tanggal; nilai asing jatuh ke default). Total
-**360 pemeriksaan**.
+**384 pemeriksaan**.
 
 Bagian **SAMPAH** di skrip itu menguji soft delete secara end-to-end: barang
 terhapus tampil di `/items/terhapus` dan absen dari daftar aktif/ekspor Excel,
@@ -325,6 +325,10 @@ detail maupun dari form barang.
   manusiawi lewat `ITEM_TYPE_LABELS` / `itemTypeLabel()` di
   `src/lib/constants.ts`. Kategori tetap menjawab "barang apa" dan dikelola di
   `/master`.
+- **Stock opname** ada di `/opname`: sesi hitung fisik per lingkup (semua / satu
+  cabang / satu lokasi). Stok sistem di-*snapshot* saat sesi dimulai, hasil hitung
+  disimpan per baris, dan selisih diterapkan ke stok + dicatat sebagai pergerakan
+  saat sesi **ditutup**. Sesi tertutup bersifat arsip (tidak bisa diubah).
 - **Label massal** ada di `/items/labels`: satu lembar berisi label untuk **barang
   hasil filter** — query string yang sama dengan `/items` (tombol "Cetak label"
   di toolbar membawanya), jadi yang tercetak selalu sama dengan yang di layar.

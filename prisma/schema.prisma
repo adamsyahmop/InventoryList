@@ -57,6 +57,8 @@ model Branch {
   sourcedItems Item[]     @relation("ItemSourceBranch")
   /// Barang yang menjadi aset milik cabang ini.
   ownedItems   Item[]     @relation("ItemOwnerBranch")
+  /// Sesi opname yang lingkupnya cabang ini.
+  opnames      StockOpname[]
 
   @@index([name])
   @@map("branches")
@@ -130,6 +132,8 @@ model Location {
   items     Item[]
   movesFrom ItemMovement[] @relation("MovementFromLocation")
   movesTo   ItemMovement[] @relation("MovementToLocation")
+  /// Sesi opname yang lingkupnya lokasi ini.
+  opnames StockOpname[]
 
   @@index([name])
   @@index([branchId])
@@ -218,6 +222,9 @@ model Item {
   soldPrice      Int?
 
   movements ItemMovement[]
+  /// Baris stock opname yang menyebut barang ini (snapshot tetap ada walau
+  /// barangnya kemudian dihapus).
+  opnameLines StockOpnameLine[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -257,4 +264,68 @@ model ItemMovement {
   @@index([itemId])
   @@index([movedAt])
   @@map("item_movements")
+}
+
+/// Status sesi stock opname
+enum OpnameStatus {
+  OPEN // sedang dihitung
+  CLOSED // sudah ditutup, selisih sudah diterapkan ke stok
+}
+
+/// Sesi stock opname: pengecekan fisik stok pada satu lingkup.
+///
+/// Lingkup disimpan sebagai snapshot teks (`scopeLabel`) PLUS id opsional, supaya
+/// sesi lama tetap terbaca walau lokasi/cabangnya kemudian dihapus atau diganti
+/// nama. Baris (StockOpnameLine) juga menyimpan kode/nama barang sebagai
+/// snapshot dengan alasan yang sama.
+model StockOpname {
+  id String @id @default(cuid())
+  /// Kode yang dibaca manusia: OPN-2026-0001
+  code   String       @unique
+  status OpnameStatus @default(OPEN)
+
+  scopeLabel String
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  branchId   String?
+  branch     Branch?   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  note      String?
+  createdBy String?
+  startedAt DateTime  @default(now())
+  closedAt  DateTime?
+
+  lines StockOpnameLine[]
+
+  @@index([status])
+  @@index([startedAt])
+  @@map("stock_opnames")
+}
+
+/// Satu baris hitung dalam sesi opname: stok sistem vs hasil hitung fisik.
+model StockOpnameLine {
+  id       String       @id @default(cuid())
+  opnameId String
+  opname   StockOpname  @relation(fields: [opnameId], references: [id], onDelete: Cascade)
+
+  itemId String?
+  item   Item?   @relation(fields: [itemId], references: [id], onDelete: SetNull)
+
+  /// Snapshot identitas barang saat sesi dimulai.
+  itemCode     String
+  itemName     String
+  locationName String?
+
+  /// Stok sistem saat sesi dimulai (bukan saat ditutup).
+  expectedQty Int
+  /// Hasil hitung fisik; `null` = belum dihitung.
+  countedQty  Int?
+  note        String?
+  countedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([opnameId, itemCode])
+  @@index([opnameId])
+  @@map("stock_opname_lines")
 }

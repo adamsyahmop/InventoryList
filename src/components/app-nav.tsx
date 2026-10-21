@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/items", label: "Barang" },
   { href: "/items/terhapus", label: "Sampah" },
   { href: "/movements", label: "Pergerakan" },
+  { href: "/opname", label: "Stock Opname" },
   { href: "/master", label: "Data Master" },
 ] as const;
 

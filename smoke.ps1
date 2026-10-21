@@ -1165,6 +1165,99 @@ $unaffected = Submit-Login $appPassword $otherIp
 Check 'throttle: IP lain tetap bisa login' $unaffected.Status 303
 Check 'throttle: IP lain mendapat cookie' ($unaffected.Cookie -ne '') $true
 
+# --- Stock opname (Tier B) -----------------------------------------------------
+# Alur penuh lewat HTTP: mulai sesi → tolak tutup tanpa hitungan → tolak jumlah
+# bukan angka → simpan hitungan (satu baris sengaja selisih) → tutup → sesi
+# kedua mengembalikan stok ke angka semula, supaya smoke bisa dijalankan ulang.
+function Get-OpnameLines([string]$html) {
+  $rows = [ordered]@{}
+  foreach ($m in [regex]::Matches($html, '(?s)<tr[^>]*>(?:(?!</tr>).)*?name="counted_([^"]+)"(?:(?!</tr>).)*?</tr>')) {
+    $chunk = $m.Value
+    $code = [regex]::Match($chunk, 'INV-\d{4}-\d{4}(-[A-Z]+)?').Value
+    $expected = [regex]::Match($chunk, 'text-right text-neutral-600">\s*([\d.]+)\s*<').Groups[1].Value
+    $rows[$m.Groups[1].Value] = [pscustomobject]@{
+      Code     = $code
+      Expected = [int]($expected -replace '\.', '')
+    }
+  }
+  return $rows
+}
+
+function Get-OpnameCounts($lines, [string]$targetKey, [int]$delta) {
+  $counts = @{}
+  foreach ($entry in $lines.GetEnumerator()) {
+    $qty = [int]$entry.Value.Expected
+    if ($entry.Key -eq $targetKey) { $qty = $qty + $delta }
+    $counts["counted_$($entry.Key)"] = "$qty"
+  }
+  return $counts
+}
+
+$opnAnon = Hit '/opname' $null
+Check 'opname tanpa sesi dialihkan ke login' ($opnAnon.Location -like '*/login*') $true
+
+$opnList = Hit '/opname' $token
+Check 'opname daftar status' $opnList.Code 200
+HasText 'opname daftar punya form mulai' $opnList.Body 'Mulai sesi baru'
+HasText 'opname daftar punya riwayat' $opnList.Body 'Riwayat sesi'
+HasText 'opname nav ada' $opnList.Body 'Stock Opname'
+
+$opnStart = Submit-Action '/opname' 'Mulai opname' '' $token
+Check 'opname mulai status redirect' $opnStart.Code 303
+Check 'opname mulai mengarah ke lembar hitung' ($opnStart.Location -like '/opname/*') $true
+$opnId = ($opnStart.Location -replace '^/opname/', '')
+
+$opnSheet = Hit "/opname/$opnId" $token
+Check 'opname lembar status' $opnSheet.Code 200
+HasText 'opname lembar punya form hitung' $opnSheet.Body 'Simpan hitungan'
+HasText 'opname lembar memuat snapshot barang' $opnSheet.Body 'INV-2026-'
+HasText 'opname lembar progress awal' $opnSheet.Body '0/'
+
+$opnLines = Get-OpnameLines $opnSheet.Body
+Check 'opname baris terbaca dari lembar' ($opnLines.Count -gt 0) $true
+$opnTargetKey = @($opnLines.Keys)[0]
+$opnTargetCode = $opnLines[$opnTargetKey].Code
+
+# Sesi tanpa satu pun hitungan tidak boleh ditutup: stok tidak boleh "dinolkan"
+# hanya karena tombolnya tertekan lebih awal.
+$opnCloseEarly = Submit-Action "/opname/$opnId" 'Tutup opname' '' $token
+HasText 'opname tolak tutup tanpa hitungan' $opnCloseEarly.Body 'Belum ada baris yang dihitung'
+
+$opnBad = Submit-Action "/opname/$opnId" 'Simpan hitungan' '' $token @{ "counted_$opnTargetKey" = 'abc' }
+HasText 'opname tolak jumlah bukan angka' $opnBad.Body 'harus bilangan bulat'
+
+$opnCounts = Get-OpnameCounts $opnLines $opnTargetKey 1
+$opnSave = Submit-Action "/opname/$opnId" 'Simpan hitungan' '' $token $opnCounts
+HasText 'opname simpan hitungan' $opnSave.Body 'baris berisi hitungan'
+
+$opnSheet2 = Hit "/opname/$opnId" $token
+HasText 'opname progress penuh' $opnSheet2.Body "$($opnLines.Count)/$($opnLines.Count) baris dihitung"
+HasText 'opname selisih terdeteksi' $opnSheet2.Body '1 barang'
+
+$opnClose = Submit-Action "/opname/$opnId" 'Tutup opname' '' $token
+HasText 'opname tutup menerapkan selisih' $opnClose.Body '1 barang disesuaikan'
+
+$opnClosed = Hit "/opname/$opnId" $token
+HasText 'opname tertutup menampilkan hasil' $opnClosed.Body 'Hasil opname'
+HasText 'opname hasil menandai selisih +1' $opnClosed.Body '+1'
+HasText 'opname tertutup tanpa form hitung' $opnClosed.Body 'Simpan hitungan' $false
+
+$opnMove = Hit "/movements?q=$opnTargetCode" $token
+HasText 'opname menulis riwayat pergerakan' $opnMove.Body 'Stock opname OPN-'
+
+# Sesi kedua: kembalikan stok barang target ke angka semula.
+$opnStart2 = Submit-Action '/opname' 'Mulai opname' '' $token
+Check 'opname sesi pemulihan dibuat' ($opnStart2.Location -like '/opname/*') $true
+$opnId2 = ($opnStart2.Location -replace '^/opname/', '')
+$opnSheet3 = Hit "/opname/$opnId2" $token
+$opnLines2 = Get-OpnameLines $opnSheet3.Body
+$opnTargetKey2 = @($opnLines2.Keys)[0]
+$opnCounts2 = Get-OpnameCounts $opnLines2 $opnTargetKey2 (-1)
+$null = Submit-Action "/opname/$opnId2" 'Simpan hitungan' '' $token $opnCounts2
+$opnRestore = Submit-Action "/opname/$opnId2" 'Tutup opname' '' $token
+HasText 'opname sesi pemulihan menutup' $opnRestore.Body '1 barang disesuaikan'
+
+
 [Console]::WriteLine('')
 foreach ($c in $checks) {
   if ($c.Pass) { "PASS  {0}" -f $c.Label }
