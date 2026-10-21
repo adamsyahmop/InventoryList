@@ -2,7 +2,9 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Net.Http
 # Berkas .xlsx adalah arsip ZIP, jadi isinya diperiksa lewat System.IO.Compression.
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$base = 'http://localhost:3100'
+# Port bisa diganti lewat env, mis. untuk memeriksa artefak standalone/Docker:
+#   $env:SMOKE_BASE='http://localhost:3101'; ./smoke.ps1
+$base = if ($env:SMOKE_BASE) { $env:SMOKE_BASE } else { 'http://localhost:3100' }
 $secret = '3aec7dcfe2f974af6fb2ef83f066a35e68fbc53604830a68e09839525c1818e5'
 
 # Password login dibaca dari .env supaya skrip tidak perlu diubah saat password

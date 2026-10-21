@@ -69,3 +69,6 @@ next-env.d.ts
 # unggahan foto barang: berkas runtime, bukan bagian dari repo
 /uploads/
 
+# hasil scripts/backup-db.mjs
+/backups/
+

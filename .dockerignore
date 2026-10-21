@@ -1,0 +1,21 @@
+node_modules
+.next
+.git
+.gitignore
+*.log
+*.tsbuildinfo
+
+# Jangan pernah membawa rahasia & data runtime ke dalam image.
+.env
+.env.*
+!.env.example
+dev.db
+dev.db-*
+prisma/*.db
+uploads
+backups
+
+# Berkas verifikasi lokal
+smoke.ps1
+smoke*.html
+*.xlsx.tmp

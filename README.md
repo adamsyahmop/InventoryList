@@ -429,32 +429,98 @@ Tiga dimensi yang sengaja dipisah:
   `Cabang Lokasi`, `Sumber Perolehan`, `Cabang Pembeli`, `Pemilik Aset`,
   `Tanggal Dibuang`, `Alasan Dibuang`, `Tanggal Jual`, `Harga Jual`.
 
-## Getting Started
-
-First, run the development server:
+## Menjalankan lokal
 
 ```bash
-npm run dev
+npm install
+cp .env.example .env      # isi APP_PASSWORD & SESSION_SECRET
+npx prisma migrate deploy # atau: npx prisma migrate dev
+npm run seed              # data contoh (opsional)
+npm run dev               # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Verifikasi end-to-end ada di `smoke.ps1` (PowerShell, butuh server hidup):
 
+```bash
+npm run build && npm run start -- -p 3100
+powershell -NoProfile -ExecutionPolicy Bypass -File ./smoke.ps1
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Port bisa diganti: `$env:SMOKE_BASE='http://localhost:3101'; ./smoke.ps1`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Deploy
 
-## Learn More
+**Bukan Vercel/Netlify.** Aplikasi ini memakai SQLite lewat `better-sqlite3`
+(modul native) dan menulis foto barang ke disk (`uploads/`). Platform serverless
+mempunyai filesystem read-only/ephemeral: database dan foto akan hilang setiap
+deploy. Sasaran yang benar: **VPS atau mesin sendiri dengan Docker**.
 
-To learn more about Next.js, take a look at the following resources:
+### 1. Siapkan `.env` produksi
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+cp .env.example .env
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"   # SESSION_SECRET
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+`.env` **tidak** ikut ke dalam image (lihat `.dockerignore`); nilainya diberikan
+saat container jalan lewat `env_file`. `DATABASE_URL` di-override compose menjadi
+`file:/data/app.db` (volume).
 
-## Deploy on Vercel
+### 2. Jalankan
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+docker compose up -d --build
+docker compose logs -f app
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Compose menaikkan dua service:
+
+- `migrate` — image builder (punya Prisma CLI), menjalankan
+  `npx prisma migrate deploy` sekali pada volume database, lalu selesai.
+- `app` — image runtime (`output: "standalone"`), menunggu `migrate` sukses.
+
+Data tidak hilang saat container dibuat ulang karena berada di dua volume:
+
+| Volume | Isi |
+|---|---|
+| `db-data` → `/data` | `app.db` (SQLite) |
+| `uploads` → `/app/uploads` | foto barang |
+
+`docker compose down` (tanpa `-v`) mempertahankan keduanya. `down -v`
+menghapusnya — jangan dijalankan tanpa backup.
+
+### 3. Backup & restore
+
+`scripts/backup-db.mjs` memakai `VACUUM INTO` (bukan menyalin berkas SQLite yang
+sedang ditulis), lalu memeriksa `integrity_check` dan jumlah baris:
+
+```bash
+docker compose run --rm migrate node scripts/backup-db.mjs   # hasil di ./backups
+BACKUP_DIR=/srv/backup KEEP=30 node scripts/backup-db.mjs    # di host
+```
+
+Jadwalkan lewat cron host, mis. tiap 03:00:
+
+```cron
+0 3 * * * cd /srv/inventory && docker compose run --rm -e BACKUP_DIR=/backup \
+  -v /srv/backup:/backup migrate node scripts/backup-db.mjs >> /var/log/inventory-backup.log 2>&1
+```
+
+Prosedur restore (termasuk catatan bahwa foto **tidak** ikut backup database):
+`scripts/restore-db.md`.
+
+### 4. Upgrade
+
+```bash
+git pull
+docker compose up -d --build     # migrate ikut jalan lebih dulu
+```
+
+### Catatan produksi
+
+- **Satu instance.** Throttle login dan cache disimpan di memori proses; dua
+  container di belakang load balancer akan punya hitungan throttle sendiri-sendiri.
+- **HTTPS di depan** (Caddy/Nginx/Cloudflare Tunnel). Cookie sesi `HttpOnly`;
+  tanpa TLS, cookie itu lewat jaringan terbuka.
+- **`.env` bukan tempat menyimpan rahasia bersama.** Satu password dipakai
+  bersama semua staf sampai ada model `User` (lihat catatan roadmap).

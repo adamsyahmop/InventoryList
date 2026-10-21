@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "@/generated/prisma/client";
@@ -17,11 +18,18 @@ function resolveDatabaseUrl(): string {
   }
 
   const filePath = raw.slice("file:".length);
-  if (path.isAbsolute(filePath)) {
-    return raw;
-  }
+  const absolute = path.isAbsolute(filePath)
+    ? filePath
+    : path.resolve(/* turbopackIgnore: true */ process.cwd(), filePath);
 
-  return `file:${path.resolve(/* turbopackIgnore: true */ process.cwd(), filePath)}`;
+  // SQLite tidak bisa membuat direktori induk sendiri: kalau volume belum
+  // ter-mount (atau folder `data/` belum ada), Prisma gagal dengan pesan
+  // "Cannot open database because the directory does not exist" yang tidak
+  // menyebut path mana. Membuatnya di sini membuat start pertama di container
+  // baru berhasil tanpa langkah manual.
+  fs.mkdirSync(path.dirname(absolute), { recursive: true });
+
+  return `file:${absolute}`;
 }
 
 function createPrismaClient() {

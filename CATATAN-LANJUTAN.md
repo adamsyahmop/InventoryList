@@ -1,10 +1,12 @@
 # Catatan Lanjutan — Inventory List
 
-Terakhir diperbarui: 20 Oktober 2026 (**Paket 6–12** — Tier A tuntas, Tier B 5/6).
+Terakhir diperbarui: 20 Oktober 2026 (**Paket 6–13** — Tier A tuntas, Tier B 5/6,
+Tier C deploy & backup selesai).
 Paket 6: rahasia tanpa fallback hardcoded. Paket 7: **throttle login** per IP.
 Paket 8: **impor `.xlsx`**. Paket 9: **ekspor mengikuti filter**. Paket 10:
 **`/movements` filter + paginasi**. Paket 11: **label massal**. Paket 12:
-**stock opname** (`/opname`, model `StockOpname`/`StockOpnameLine`). `smoke.ps1`
+**stock opname** (`/opname`, model `StockOpname`/`StockOpnameLine`). Paket 13:
+**deploy VPS/Docker** (standalone build + compose + backup/restore). `smoke.ps1`
 kini **384 pemeriksaan, 0 gagal**.
 Sebelumnya, 16 Oktober 2026: **foto barang** selesai
 end-to-end: unggah dari form barang & halaman detail, disajikan lewat route
@@ -37,6 +39,72 @@ setelah perbaikan `searchKey` (Paket 5 #1).
 > membuat 4 pemeriksaan angka dashboard gagal. DB kini persis data seed: 9 barang
 > aktif + 1 barang ter-soft-delete, dan movement yatim 0 (pergerakan barang itu
 > ikut terhapus lewat `onDelete: Cascade`).
+
+## Paket 13 — arah deploy: VPS + Docker (sesi 20 Oktober 2026)
+
+Butir Tier C yang paling mendesak: README masih memuat boilerplate "Deploy on
+Vercel", padahal aplikasi ini **tidak mungkin** jalan di sana — SQLite lewat
+`better-sqlite3` (modul native) dan foto barang di `uploads/` butuh filesystem
+yang persisten, sedangkan platform serverless read-only/ephemeral.
+
+**Keputusan: VPS + Docker, SQLite tetap.** PostgreSQL adalah opsi yang sudah
+disiapkan skema (komentar di `prisma/schema.prisma`), tapi migrasi itu pekerjaan
+tersendiri dan tidak dibutuhkan untuk satu instans dengan puluhan ribu baris.
+Yang dipilih sekarang: bikin artefak produksi yang benar-benar bisa dinaikkan.
+
+Perubahan:
+
+- `next.config.ts` — `output: "standalone"`.
+- `Dockerfile` — tiga stage: `deps` (toolchain untuk better-sqlite3 bila prebuilt
+  tidak tersedia), `builder` (`prisma generate` + `npm run build`), `runner`
+  (hanya standalone + static + public, user `node`, volume `/data` &
+  `/app/uploads`).
+- `docker-compose.yml` — service `migrate` (image builder, `prisma migrate
+  deploy` sekali) dan `app` (`depends_on: service_completed_successfully`), dua
+  volume bernama, healthcheck ke `/login`.
+- `.dockerignore` — `.env`, database, `uploads`, `backups` tidak ikut ke image.
+- `scripts/backup-db.mjs` (`npm run backup`) — `VACUUM INTO` + `integrity_check`
+  + jumlah baris + rotasi `KEEP` (default 14).
+- `scripts/restore-db.md` — prosedur restore (Docker & non-Docker), termasuk
+  catatan bahwa foto **tidak** ikut backup database.
+- `src/lib/prisma.ts` — direktori induk database dibuat bila belum ada
+  (`fs.mkdirSync`), supaya start pertama dengan volume kosong tidak gagal dengan
+  pesan "directory does not exist" yang tidak menyebut path.
+- `smoke.ps1` — `$base` bisa diganti lewat `SMOKE_BASE`, jadi gate yang sama bisa
+  dipakai memeriksa artefak standalone/Docker (bukan cuma `next start`).
+- README — bagian "Menjalankan lokal" + "Deploy" (VPS/Docker, volume, backup,
+  upgrade, catatan satu-instance & HTTPS); boilerplate Vercel dibuang.
+
+Verifikasi 20 Oktober 2026 — **Docker tidak terpasang di mesin ini**, jadi image
+sendiri belum pernah dibangun. Yang bisa dan sudah diuji adalah artefak di
+dalamnya: `.next/standalone` disalin ke folder bersih seperti yang dilakukan
+`Dockerfile`, dijalankan dengan `NODE_ENV=production` + `DATABASE_URL` absolut ke
+salinan `dev.db` di folder `data/`, lalu **`smoke.ps1` 384 pemeriksaan, 0 gagal**
+(`SMOKE_BASE=http://localhost:3101`). Jadi `server.js` standalone, better-sqlite3
+native, Prisma client, dan `/api/export` (exceljs) terbukti jalan tanpa
+`node_modules` penuh.
+
+Backup diuji nyata: `node scripts/backup-db.mjs` → `integrity=ok`, 252 KB,
+`barang=10 pergerakan=91 opname=4`; berkas hasilnya dipakai sebagai database
+restore-test, `npx prisma migrate deploy` menjawab **"No pending migrations"**,
+dan datanya utuh.
+
+Dua temuan saat verifikasi:
+
+1. **`/api/export` 500 di artefak standalone** pada percobaan pertama. Penyebabnya
+   path `DATABASE_URL` bergaya MSYS (`file:/c/Users/...`): `path.isAbsolute()`
+   menganggapnya absolut, lalu better-sqlite3 menafsirkannya sebagai path relatif
+   di root drive → folder tidak ada. Dengan path `file:C:/...` (atau `/data/...`
+   di Linux) export normal. Ditambah `mkdirSync` di `prisma.ts` supaya kasus
+   "folder belum ada" tidak muncul sebagai error yang membingungkan.
+2. Forged cookie di gate **harus** memakai `SESSION_SECRET` yang sama dengan
+   server; saat skrip env percobaan memakai nilai karangan, semua request jadi
+   307 ke `/login` dan gejalanya terlihat seperti "auth rusak" padahal bukan.
+
+Belum terverifikasi di sini: `docker build`, `docker compose up`, healthcheck
+container, dan `prisma migrate deploy` di dalam image builder (di host sudah
+dijalankan dan hijau). Langkah pertama di VPS: `docker compose up -d --build`,
+lalu `docker compose ps` (app harus `healthy`).
 
 ## Paket 12 — stock opname (sesi 20 Oktober 2026)
 
@@ -1254,14 +1322,10 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
 - **Belum ada CI.** Perlu alur `tsc --noEmit` → `eslint` → `build` →
   `smoke.ps1` (dengan `npm run seed`) supaya regresi seperti
   `runtime = "nodejs"` tidak terulang tanpa terasa.
-- **Arah deploy belum konsisten.** `README.md` masih memuat boilerplate
-  "Deploy on Vercel", padahal **SQLite + `better-sqlite3` (native) tidak bisa
-  jalan di Vercel** (filesystem read-only/ephemeral). Ini keputusan arsitektur
-  yang lebih mendesak daripada fitur: pindah ke PostgreSQL (skema sudah
-  portabel; catatan migrasinya di `prisma/schema.prisma:4-7`) atau ke
-  VPS/Docker.
-- **Belum ada backup/restore.** `dev.db` sudah di-`.gitignore` (benar), tetapi
-  produksi perlu `VACUUM INTO` terjadwal + prosedur restore tertulis.
+- ✅ **SELESAI (Paket 13)** — arah deploy diputuskan: **VPS + Docker, SQLite
+  tetap**; artefak standalone, compose, backup, dan prosedur restore sudah ada.
+- ✅ **SELESAI (Paket 13)** — `scripts/backup-db.mjs` (`VACUUM INTO` +
+  `integrity_check` + rotasi) dan `scripts/restore-db.md`.
 - **Pekerjaan sesi ini sudah di-commit** bersama paket yang masih tertahan
   (ekspor `.xlsx`, error boundary berlapis, `scripts/rebuild-search-keys.ts`,
   Paket 5 #1 & #2). `scripts/` kini hanya berisi `rebuild-search-keys.ts` — semua
