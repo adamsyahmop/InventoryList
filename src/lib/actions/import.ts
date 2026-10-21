@@ -2,7 +2,7 @@
 
 import { updateTag } from "next/cache";
 import { buildItemSearchKey, describeError, toItemWriteData } from "@/lib/action-utils";
-import { requireAuth } from "@/lib/auth";
+import { requireWrite } from "@/lib/auth";
 import { buildItemCode, itemCodeSequence, itemCodeYear } from "@/lib/constants";
 import {
   buildMasterIndex,
@@ -45,7 +45,7 @@ export async function importItemsAction(
   _prev: ImportState,
   formData: FormData,
 ): Promise<ImportState> {
-  await requireAuth();
+  const actor = await requireWrite();
 
   const upload = formData.get("file");
   if (!(upload instanceof File) || upload.size === 0) {
@@ -142,7 +142,7 @@ export async function importItemsAction(
             ...toItemWriteData(row.data, searchKey, code),
             // Impor tidak membawa berkas foto; foto tetap ditambahkan lewat UI.
             photoUrl: null,
-            createdBy: "admin",
+            createdBy: actor.username,
           },
         });
         await tx.itemMovement.create({
@@ -152,7 +152,7 @@ export async function importItemsAction(
             toStatus: item.status,
             quantity: item.quantity,
             reason: "Pencatatan awal (impor)",
-            movedBy: "admin",
+            movedBy: actor.username,
           },
         });
       });

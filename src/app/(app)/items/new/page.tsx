@@ -1,12 +1,30 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import { ItemForm } from "@/components/items/item-form";
-import { Card, PageHeader } from "@/components/ui/card";
+import { Card, CardBody, PageHeader } from "@/components/ui/card";
+import { getSession } from "@/lib/auth";
 import { getMasterData } from "@/lib/queries";
 
 export const metadata: Metadata = { title: "Tambah Barang" };
 
+function ViewerNotice() {
+  return (
+    <Card>
+      <CardBody>
+        <p className="text-sm text-neutral-600">
+          Akun viewer hanya bisa melihat data. Minta admin mengubah peran akun
+          Anda untuk menambah atau mengubah barang.
+        </p>
+      </CardBody>
+    </Card>
+  );
+}
+
 async function NewItemForm() {
+  // Viewer tidak diberi form yang pasti ditolak server: tampilkan alasannya.
+  const actor = await getSession();
+  if (actor?.role === "VIEWER") return <ViewerNotice />;
+
   const master = await getMasterData();
   return <ItemForm mode="create" master={master} />;
 }

@@ -20,6 +20,7 @@ import {
   saveLocationAction,
   saveSupplierAction,
 } from "@/lib/actions/master";
+import { getSession } from "@/lib/auth";
 import { getMasterData } from "@/lib/queries";
 
 export const metadata: Metadata = { title: "Data Master" };
@@ -85,6 +86,10 @@ function MasterSkeleton() {
 }
 
 async function MasterData() {
+  // Hanya admin yang boleh mengubah data master; peran lain melihat daftar saja.
+  const actor = await getSession();
+  const canManage = actor?.role === "ADMIN";
+
   const { categories, departments, brands, locations, suppliers, branches } =
     await getMasterData();
 
@@ -184,6 +189,7 @@ async function MasterData() {
   return (
     <div className="flex flex-col gap-4">
       <MasterManager
+        canManage={canManage}
         title="Cabang"
         description="Unit kerja pemilik aset. Dipakai pada barang (sumber & pemilik) dan lokasi."
         fields={BRANCH_FIELDS}
@@ -193,6 +199,7 @@ async function MasterData() {
         emptyText="Belum ada cabang."
       />
       <MasterManager
+        canManage={canManage}
         title="Unit pengelola"
         description="Unit yang memakai & merawat barang (mis. IT, GA). Dimensi terpisah dari kategori dan cabang."
         fields={DEPARTMENT_FIELDS}
@@ -202,6 +209,7 @@ async function MasterData() {
         emptyText="Belum ada unit pengelola."
       />
       <MasterManager
+        canManage={canManage}
         title="Kategori"
         description="Pengelompokan jenis barang."
         fields={CATEGORY_FIELDS}
@@ -211,6 +219,7 @@ async function MasterData() {
         emptyText="Belum ada kategori."
       />
       <MasterManager
+        canManage={canManage}
         title="Merek"
         description="Produsen atau merek dagang barang."
         fields={BRAND_FIELDS}
@@ -220,6 +229,7 @@ async function MasterData() {
         emptyText="Belum ada merek."
       />
       <MasterManager
+        canManage={canManage}
         title="Lokasi"
         description="Tempat penyimpanan barang, bisa ditautkan ke satu cabang."
         fields={locationFields}
@@ -229,6 +239,7 @@ async function MasterData() {
         emptyText="Belum ada lokasi."
       />
       <MasterManager
+        canManage={canManage}
         title="Supplier"
         description="Pemasok barang inventaris."
         fields={SUPPLIER_FIELDS}

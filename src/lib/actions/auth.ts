@@ -3,7 +3,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { formToObject, type ActionState } from "@/lib/action-utils";
-import { endSession, startSession, verifyPassword } from "@/lib/auth";
+import { endSession, startSession } from "@/lib/auth";
 import {
   clearLoginThrottle,
   formatRetryAfter,
@@ -12,6 +12,8 @@ import {
   peekLoginThrottle,
   recordLoginFailure,
 } from "@/lib/login-throttle";
+import { verifyPasswordHash } from "@/lib/passwords";
+import { prisma } from "@/lib/prisma";
 import { loginSchema, toFieldErrors } from "@/lib/validations";
 
 /** Cegah open redirect: hanya izinkan path internal. */
@@ -29,7 +31,7 @@ export async function loginAction(
   if (!parsed.success) {
     return {
       ok: false,
-      message: "Password wajib diisi.",
+      message: "Username dan password wajib diisi.",
       fieldErrors: toFieldErrors(parsed.error),
     };
   }
@@ -46,7 +48,25 @@ export async function loginAction(
     };
   }
 
-  if (!verifyPassword(parsed.data.password)) {
+  const user = await prisma.user.findUnique({
+    where: { username: parsed.data.username },
+    select: {
+      id: true,
+      username: true,
+      role: true,
+      active: true,
+      passwordHash: true,
+    },
+  });
+
+  // Akun nonaktif diperlakukan sama seperti password salah (tidak membocorkan
+  // bahwa username-nya ada), tapi tetap dihitung sebagai kegagalan.
+  const valid =
+    user !== null &&
+    user.active &&
+    verifyPasswordHash(parsed.data.password, user.passwordHash);
+
+  if (!valid) {
     const after = recordLoginFailure(throttleKey);
 
     if (after.blocked) {
@@ -61,13 +81,17 @@ export async function loginAction(
       ok: false,
       message:
         sisa < MAX_LOGIN_FAILURES
-          ? `Password salah. Sisa ${sisa} percobaan sebelum login dikunci.`
-          : "Password salah. Coba lagi.",
+          ? `Username atau password salah. Sisa ${sisa} percobaan sebelum login dikunci.`
+          : "Username atau password salah. Coba lagi.",
     };
   }
 
   clearLoginThrottle(throttleKey);
-  await startSession();
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { lastLoginAt: new Date() },
+  });
+  await startSession({ id: user.id, username: user.username, role: user.role });
   redirect(safeRedirectTarget(formData.get("next")));
 }
 

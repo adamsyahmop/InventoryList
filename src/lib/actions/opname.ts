@@ -3,7 +3,7 @@
 import { updateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { describeError, type ActionState } from "@/lib/action-utils";
-import { requireAuth } from "@/lib/auth";
+import { requireWrite } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildItemWhere, CACHE_TAGS } from "@/lib/queries";
 
@@ -62,7 +62,7 @@ export async function startOpnameAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  const actor = await requireWrite();
 
   const branchId = String(formData.get("branchId") ?? "").trim();
   const locationId = String(formData.get("locationId") ?? "").trim();
@@ -120,7 +120,7 @@ export async function startOpnameAction(
         branchId: branchId || null,
         locationId: locationId || null,
         note: note || null,
-        createdBy: "admin",
+        createdBy: actor.username,
         lines: {
           createMany: {
             data: items.map((item) => ({
@@ -164,7 +164,7 @@ export async function saveOpnameCountsAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  await requireWrite();
 
   const opnameId = String(formData.get("opnameId") ?? "").trim();
   if (!opnameId) return { ok: false, message: "Sesi opname tidak dikenal." };
@@ -252,7 +252,7 @@ export async function closeOpnameAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  const actor = await requireWrite();
 
   const opnameId = String(formData.get("opnameId") ?? "").trim();
   if (!opnameId) return { ok: false, message: "Sesi opname tidak dikenal." };
@@ -307,7 +307,7 @@ export async function closeOpnameAction(
             quantity: diff,
             reason: `Stock opname ${opname.code}`,
             notes: `Stok sistem ${line.expectedQty} → fisik ${countedQty}`,
-            movedBy: "admin",
+            movedBy: actor.username,
           },
         });
 

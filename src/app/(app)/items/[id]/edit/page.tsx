@@ -2,13 +2,28 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ItemForm, type ItemFormValues } from "@/components/items/item-form";
-import { Card, PageHeader } from "@/components/ui/card";
+import { Card, CardBody, PageHeader } from "@/components/ui/card";
+import { getSession } from "@/lib/auth";
 import { toDateInputValue } from "@/lib/format";
 import { getItem, getMasterData } from "@/lib/queries";
 
 export const metadata: Metadata = { title: "Edit Barang" };
 
 async function EditItemForm({ params }: { params: Promise<{ id: string }> }) {
+  const actor = await getSession();
+  if (actor?.role === "VIEWER") {
+    return (
+      <Card>
+        <CardBody>
+          <p className="text-sm text-neutral-600">
+            Akun viewer hanya bisa melihat data. Minta admin mengubah peran akun
+            Anda untuk menyunting barang.
+          </p>
+        </CardBody>
+      </Card>
+    );
+  }
+
   const { id } = await params;
   const [item, master] = await Promise.all([getItem(id), getMasterData()]);
 

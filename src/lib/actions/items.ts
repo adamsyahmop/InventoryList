@@ -10,7 +10,7 @@ import {
   toItemWriteData,
   type ActionState,
 } from "@/lib/action-utils";
-import { requireAuth } from "@/lib/auth";
+import { requireWrite } from "@/lib/auth";
 import {
   PHOTO_FLASH_PARAM,
   PHOTO_FLASH_VALUE,
@@ -87,7 +87,7 @@ export async function createItemAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  const actor = await requireWrite();
 
   const parsed = itemSchema.safeParse(formToObject(formData));
   if (!parsed.success) {
@@ -125,7 +125,7 @@ export async function createItemAction(
         // Nilai dari `toItemWriteData()` ditimpa: URL foto hanya boleh datang
         // dari unggahan (nama berkasnya dibuat server), bukan dari form.
         photoUrl: photo.photoUrl,
-        createdBy: "admin",
+        createdBy: actor.username,
       },
     });
     createdId = created.id;
@@ -138,7 +138,7 @@ export async function createItemAction(
         toStatus: created.status,
         quantity: created.quantity,
         reason: "Pencatatan awal",
-        movedBy: "admin",
+        movedBy: actor.username,
       },
     });
   } catch (error) {
@@ -161,7 +161,7 @@ export async function updateItemAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  const actor = await requireWrite();
 
   const id = String(formData.get("id") ?? "").trim();
   if (!id) {
@@ -225,7 +225,7 @@ export async function updateItemAction(
             toStatus: data.status,
             quantity: data.quantity,
             reason: "Perubahan data barang",
-            movedBy: "admin",
+            movedBy: actor.username,
           },
         });
       }
@@ -261,7 +261,7 @@ export async function uploadItemPhotoAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  await requireWrite();
 
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return { ok: false, message: "ID barang tidak ditemukan." };
@@ -307,7 +307,7 @@ export async function removeItemPhotoAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  await requireWrite();
 
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return { ok: false, message: "ID barang tidak ditemukan." };
@@ -339,7 +339,7 @@ export async function deleteItemAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  const actor = await requireWrite();
 
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return { ok: false, message: "ID barang tidak ditemukan." };
@@ -368,7 +368,7 @@ export async function deleteItemAction(
           toStatus: "DISPOSED",
           quantity: item.quantity,
           reason: "Dihapus ke Sampah",
-          movedBy: "admin",
+          movedBy: actor.username,
         },
       });
 
@@ -394,7 +394,7 @@ export async function restoreItemAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  const actor = await requireWrite();
 
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return { ok: false, message: "ID barang tidak ditemukan." };
@@ -420,7 +420,7 @@ export async function restoreItemAction(
           toStatus: "AVAILABLE",
           quantity: item.quantity,
           reason: "Pemulihan dari Sampah",
-          movedBy: "admin",
+          movedBy: actor.username,
         },
       });
     });
@@ -440,7 +440,7 @@ export async function createMovementAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  const actor = await requireWrite();
 
   const parsed = movementSchema.safeParse(formToObject(formData));
   if (!parsed.success) {
@@ -451,7 +451,7 @@ export async function createMovementAction(
     };
   }
 
-  const { itemId, toLocationId, toStatus, quantity, movedBy, reason, notes } =
+  const { itemId, toLocationId, toStatus, quantity, reason, notes } =
     parsed.data;
 
   try {
@@ -481,7 +481,7 @@ export async function createMovementAction(
           quantity,
           reason: reason ?? null,
           notes: notes ?? null,
-          movedBy: movedBy ?? "admin",
+          movedBy: actor.username,
         },
       });
 

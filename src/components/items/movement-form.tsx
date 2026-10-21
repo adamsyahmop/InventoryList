@@ -88,8 +88,9 @@ export function MovementForm({
               />
             </Field>
 
+            {/* Pelaku diambil dari akun yang login (audit trail), bukan diketik. */}
             <Field label="Dipindahkan oleh" htmlFor="movedBy" error={errorOf("movedBy")}>
-              <Input id="movedBy" name="movedBy" placeholder="Nama petugas" />
+              <Input id="movedBy" name="movedBy" value="Akun yang login" readOnly disabled />
             </Field>
 
             <Field label="Alasan" htmlFor="reason" error={errorOf("reason")} className="sm:col-span-2">

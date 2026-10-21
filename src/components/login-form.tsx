@@ -14,6 +14,7 @@ export function LoginForm({ next }: { next: string }) {
     loginAction,
     EMPTY_ACTION_STATE,
   );
+  const usernameError = state.fieldErrors?.username;
   const passwordError = state.fieldErrors?.password;
 
   return (
@@ -22,12 +23,23 @@ export function LoginForm({ next }: { next: string }) {
 
       {state.message ? <Alert tone="error">{state.message}</Alert> : null}
 
+      <Field label="Username" htmlFor="username" error={usernameError} required>
+        <Input
+          id="username"
+          name="username"
+          type="text"
+          autoFocus
+          autoComplete="username"
+          placeholder="mis. adam"
+          invalid={Boolean(usernameError)}
+        />
+      </Field>
+
       <Field label="Password" htmlFor="password" error={passwordError} required>
         <Input
           id="password"
           name="password"
           type="password"
-          autoFocus
           autoComplete="current-password"
           placeholder="••••••••"
           invalid={Boolean(passwordError)}

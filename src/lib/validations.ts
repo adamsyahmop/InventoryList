@@ -5,6 +5,7 @@ import {
   ItemStatus,
 } from "@/generated/prisma/enums";
 import { ITEM_TYPE_VALUES } from "@/lib/constants";
+import { MIN_PASSWORD_LENGTH } from "@/lib/passwords";
 
 /** FormData mengirim string kosong untuk field yang tidak diisi. */
 const emptyToUndefined = (value: unknown) =>
@@ -120,7 +121,6 @@ export const movementSchema = z.object({
     z.enum(ItemStatus, { error: "Status tidak valid" }).optional(),
   ),
   quantity: nonNegativeInt("Jumlah").min(1, "Jumlah minimal 1"),
-  movedBy: optionalString(150),
   reason: optionalString(200),
   notes: optionalString(500),
 });
@@ -175,7 +175,49 @@ export const supplierSchema = namedSchema("Nama supplier").extend({
 });
 
 export const loginSchema = z.object({
+  username: z
+    .string()
+    .trim()
+    .min(1, "Username wajib diisi")
+    .max(64, "Username terlalu panjang"),
   password: z.string().min(1, "Password wajib diisi"),
+});
+
+/** Username disimpan huruf kecil; hanya huruf, angka, titik, garis. */
+const usernameField = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3, "Username minimal 3 karakter")
+  .max(32, "Username maksimal 32 karakter")
+  .regex(/^[a-z0-9._-]+$/, "Username hanya huruf kecil, angka, titik, garis bawah, atau strip");
+
+const passwordField = z
+  .string()
+  .min(MIN_PASSWORD_LENGTH, `Password minimal ${MIN_PASSWORD_LENGTH} karakter`)
+  .max(200, "Password terlalu panjang");
+
+const roleField = z.enum(["ADMIN", "STAFF", "VIEWER"], {
+  message: "Peran tidak dikenal",
+});
+
+export const userCreateSchema = z.object({
+  username: usernameField,
+  name: z.string().trim().min(2, "Nama minimal 2 karakter").max(120),
+  role: roleField,
+  password: passwordField,
+});
+
+export const userUpdateSchema = z.object({
+  id: z.string().min(1, "Akun tidak dikenal"),
+  name: z.string().trim().min(2, "Nama minimal 2 karakter").max(120),
+  role: roleField,
+  active: z.boolean(),
+});
+
+export const passwordResetSchema = z.object({
+  id: z.string().min(1, "Akun tidak dikenal"),
+  password: passwordField,
 });
 
 /** Ubah ZodError menjadi map { namaField: pesanPertama }. */

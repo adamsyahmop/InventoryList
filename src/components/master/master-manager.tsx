@@ -45,10 +45,12 @@ function MasterRowItem({
   row,
   deleteAction,
   onEdit,
+  canManage,
 }: {
   row: MasterRow;
   deleteAction: MasterAction;
   onEdit: (row: MasterRow) => void;
+  canManage: boolean;
 }) {
   const [state, formAction, isPending] = useActionState<ActionState, FormData>(
     deleteAction,
@@ -56,7 +58,7 @@ function MasterRowItem({
   );
 
   return (
-    <li className="py-2">
+    <li className="py-2" data-row-id={row.id}>
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-neutral-800">
@@ -66,7 +68,16 @@ function MasterRowItem({
             <p className="truncate text-xs text-neutral-400">{row.meta}</p>
           ) : null}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        {/*
+          Tombol tetap ada di markup (hanya `hidden`) supaya struktur baris tidak
+          berubah antar peran: kalau dihapus lewat ternary, React memecah baris
+          jadi boundary terpisah dan HTML-nya tidak lagi berurutan.
+        */}
+        <div
+          className="flex shrink-0 items-center gap-1"
+          data-actions={canManage ? "shown" : "hidden"}
+          hidden={!canManage}
+        >
           <Button
             type="button"
             variant="ghost"
@@ -113,6 +124,7 @@ export function MasterManager({
   saveAction,
   deleteAction,
   emptyText,
+  canManage = true,
 }: {
   title: string;
   description?: string;
@@ -121,6 +133,8 @@ export function MasterManager({
   saveAction: MasterAction;
   deleteAction: MasterAction;
   emptyText: string;
+  /** Non-admin melihat daftar saja; form tambah/edit/hapus disembunyikan. */
+  canManage?: boolean;
 }) {
   const [state, formAction, isPending] = useActionState<ActionState, FormData>(
     saveAction,
@@ -148,6 +162,7 @@ export function MasterManager({
           <Alert tone={state.ok ? "success" : "error"}>{state.message}</Alert>
         ) : null}
 
+        {canManage ? (
         <form
           key={editing?.id ?? "new"}
           action={formAction}
@@ -217,6 +232,7 @@ export function MasterManager({
             ) : null}
           </div>
         </form>
+        ) : null}
 
         {rows.length === 0 ? (
           <p className="text-sm text-neutral-500">{emptyText}</p>
@@ -228,6 +244,7 @@ export function MasterManager({
                 row={row}
                 deleteAction={deleteAction}
                 onEdit={setEditing}
+                canManage={canManage}
               />
             ))}
           </ul>

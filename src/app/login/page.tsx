@@ -16,7 +16,7 @@ function LoginCard({ children }: { children?: React.ReactNode }) {
             Inventaris Barang
           </h1>
           <p className="mt-1 text-sm text-neutral-500">
-            Masukkan password untuk melanjutkan.
+            Masuk dengan akun Anda untuk melanjutkan.
           </p>
         </div>
         <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">

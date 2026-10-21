@@ -1625,6 +1625,98 @@ bila penyimpanan gagal — supaya tidak ada berkas yatim.
   (`photos.ts`, pesan penolakan) maupun klien (`photo-field.tsx`, catatan
   sebelum unggah) supaya angka yang disebut keduanya sama persis.
 
+## Paket 6 — multi-user: akun, peran, dan jejak audit (sesi 21 Oktober 2026)
+
+### Keputusan produk
+
+- Login per **akun** (`username` + password), bukan lagi satu password bersama
+  di `APP_PASSWORD`. Password disimpan sebagai hash **scrypt** (`src/lib/passwords.ts`),
+  lengkap dengan salt; tidak ada jalur untuk membaca password lama, hanya
+  menggantinya.
+- Tiga peran, dari yang paling luas:
+  - **ADMIN** — semua aksi, termasuk kelola akun (`/pengguna`) dan hapus data master.
+  - **STAFF** — pekerjaan inventaris: tambah/edit barang, impor, perpindahan, opname.
+  - **VIEWER** — hanya membaca; semua form tulis diganti penjelasan.
+- **Tidak ada halaman pendaftaran.** Akun pertama dibuat dari terminal
+  (`npm run user:create`), akun berikutnya dari `/pengguna` oleh admin. Ini
+  disengaja: aplikasi ini dipakai satu organisasi, bukan pendaftaran publik.
+- Jejak audit memakai `username` akun yang login (`createdBy`/`movedBy`), bukan
+  nama yang diketik di form. Field "Dipindahkan oleh" jadi read-only.
+
+### Yang berubah
+
+| Bagian | Isi |
+| --- | --- |
+| `prisma/schema.prisma` | model `User` (`id`, `username` unik, `name`, `role`, `active`, `passwordHash`, `lastLoginAt`) + migrasi `add_users` |
+| `src/lib/session.ts` | cookie berisi identitas bertanda tangan: `<b64url({u,n,r,t})>.<hmac>` |
+| `src/lib/auth.ts` | `startSession(user)`, `getSession()` (baca ulang DB → akun nonaktif langsung kehilangan akses), `requireAuth/requireWrite/requireAdmin` |
+| `src/lib/actions/auth.ts` | login per akun, pesan gagal seragam ("Username atau password salah"), throttle per IP tetap |
+| `src/lib/actions/users.ts` | buat/ubah akun, ganti password, penjagaan "admin terakhir" |
+| `src/app/(app)/pengguna` | halaman kelola akun (admin saja) |
+| `scripts/create-user.ts` | bootstrap & pemulihan akun dari terminal (`--delete` untuk menghapus) |
+| `smoke.ps1` | login nyata lewat POST form + bagian **PERAN & IZIN (RBAC)** |
+
+### Penjagaan yang mudah terlupa (sudah ditulis di kode)
+
+- **Admin terakhir** tidak bisa dinonaktifkan atau diturunkan perannya — kalau
+  boleh, tidak ada lagi yang bisa membuka `/pengguna` dan aplikasi harus
+  diselamatkan lewat SQL.
+- Akun **tidak bisa menonaktifkan dirinya sendiri** lewat `/pengguna`.
+- Akun nonaktif diperlakukan sama seperti password salah: pesannya tidak
+  membocorkan bahwa username-nya ada, tapi kegagalannya tetap dihitung throttle.
+- `requireWrite`/`requireAdmin` **mengalihkan** ke `/?denied=…` (bukan melempar
+  error) supaya penolakan berakhir sebagai pesan yang terbaca di dashboard,
+  bukan layar "Application error". Dashboard menampilkan alasannya.
+- Menu `/pengguna` disembunyikan untuk non-admin, dan tombol kelola data master
+  memakai `hidden` + `data-actions` (bukan dihapus dari markup) agar struktur
+  baris identik antar peran. **Ini hanya UI** — penjagaan sesungguhnya ada di
+  server action.
+
+### Cara pakai
+
+```bash
+# akun pertama (atau reset password admin yang terkunci)
+npm run user:create -- --username adam --name "Adam Saputra" --role ADMIN
+# password: --password "..." (atau APP_PASSWORD dari .env, atau dibuat acak)
+
+npm run user:create -- --username budi --name "Budi" --role STAFF --password "..."
+npm run user:create -- --username smoke-x --delete      # hapus akun
+```
+
+Setelah upgrade ini **semua cookie lama tidak sah** (format token berubah), jadi
+setiap pengguna perlu login sekali lagi.
+
+### Bukti (dijalankan langsung, bukan dari ingatan)
+
+- `npx tsc --noEmit` → 0, `npx eslint src scripts --max-warnings=0` → 0,
+  `npm run build` → sukses (route `/pengguna` ikut terprerender sebagai PPR).
+- `powershell -NoProfile -File ./smoke.ps1` terhadap `next start -p 3100`:
+  **415 pemeriksaan, 0 gagal**, `exit 0`.
+- Bagian RBAC yang baru (14 pemeriksaan) membuktikan: staff login dapat cookie,
+  staff melihat `/pengguna` sebagai "hanya untuk admin" dan tanpa form tambah,
+  menu Pengguna tidak muncul untuk staff tapi muncul untuk admin, staff tidak
+  bisa menghapus data master lewat POST (dialihkan ke `/?denied=admin` dan
+  datanya utuh), viewer tidak mendapat form tambah barang dan POST-nya
+  dialihkan ke `/?denied=write`, sedangkan staff tetap boleh menulis.
+- Akun uji (`smoke-staff`, `smoke-viewer`) dibuat dan dihapus lagi oleh smoke,
+  jadi isi database setelah suite selesai kembali seperti semula.
+
+### Catatan teknis
+
+- **Jangan menandatangani cookie sendiri di skrip uji.** Cookie memuat identitas
+  yang ditandatangani server; satu-satunya cara jujur mendapatkannya adalah
+  `POST /login`. Smoke sekarang begitu (dulu membuat token HMAC manual).
+- `npm run … -- --flag` **tidak** meneruskan argumen dengan benar dari
+  PowerShell; di `smoke.ps1` skrip akun dipanggil lewat
+  `npx --no-install tsx scripts/create-user.ts …`.
+- `Get-MasterRowId` di smoke membaca `data-row-id` pada `<li>`, bukan input
+  hidden di dalam form: React memecah isi baris yang punya `useActionState`
+  menjadi potongan yang di-stream terpisah (`<template id="P:…">`), sehingga
+  label dan form tidak selalu berada dalam satu chunk HTML.
+- Redirect di dalam child yang di-`<Suspense>` **tidak** mengubah status HTTP
+  (shell sudah 200). Untuk penolakan GET, tampilkan pemberitahuan di halaman,
+  bukan `redirect()`.
+
 ## Hal teknis yang perlu diingat (jangan diulang salahnya)
 
 - **Prisma 7 + `groupBy`:** wajib ada `orderBy`. Dan `groupBy` **tidak boleh**

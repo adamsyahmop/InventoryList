@@ -1,6 +1,24 @@
 import type { ReactNode } from "react";
 import { Suspense } from "react";
 import { AppNav } from "@/components/app-nav";
+import { getSession } from "@/lib/auth";
+
+/**
+ * Nav butuh identitas pengguna (nama, peran, menu admin). `getSession()` sudah
+ * dibungkus `cache()` sehingga query akun tidak diulang di setiap render.
+ */
+async function NavWithUser() {
+  const user = await getSession();
+  return (
+    <AppNav
+      user={
+        user
+          ? { name: user.name, username: user.username, role: user.role }
+          : null
+      }
+    />
+  );
+}
 
 /** Rangka navigasi statis, dipakai sebagai fallback saat nav di-stream. */
 function NavFallback() {
@@ -13,7 +31,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-full flex-col">
       <Suspense fallback={<NavFallback />}>
-        <AppNav />
+        <NavWithUser />
       </Suspense>
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6">
         {children}

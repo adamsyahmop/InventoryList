@@ -5,6 +5,7 @@ import { connection } from "next/server";
 import { BranchDonut } from "@/components/dashboard/branch-donut";
 import { ButtonLink } from "@/components/ui/button";
 import {
+  Alert,
   Badge,
   Card,
   CardBody,
@@ -466,7 +467,37 @@ async function DashboardContent() {
   );
 }
 
-export default function DashboardPage() {
+/** Alasan redirect dari `requireWrite`/`requireAdmin` di `src/lib/auth.ts`. */
+const DENIED_MESSAGES = {
+  write: "Akun viewer hanya bisa melihat data. Minta admin mengubah peran akun Anda untuk melakukan perubahan.",
+  admin: "Tindakan itu khusus admin (kelola pengguna dan data master).",
+} as const;
+
+/**
+ * `searchParams` dibaca di dalam komponen Suspense: kalau dibaca langsung di
+ * page, seluruh halaman jadi dynamic dan PPR gagal prerender.
+ */
+async function DeniedNotice({
+  searchParams,
+}: {
+  searchParams: Promise<{ denied?: string }>;
+}) {
+  const params = await searchParams;
+  const denied =
+    params.denied === "write" || params.denied === "admin"
+      ? DENIED_MESSAGES[params.denied]
+      : null;
+
+  if (!denied) return null;
+  return <Alert tone="error">{denied}</Alert>;
+}
+
+export default function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ denied?: string }>;
+}) {
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -474,6 +505,9 @@ export default function DashboardPage() {
         description="Ringkasan inventaris barang."
         action={<ButtonLink href="/items/new">+ Tambah Barang</ButtonLink>}
       />
+      <Suspense fallback={null}>
+        <DeniedNotice searchParams={searchParams} />
+      </Suspense>
       <Suspense fallback={<Skeleton />}>
         <DashboardContent />
       </Suspense>

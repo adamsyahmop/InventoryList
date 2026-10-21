@@ -5,7 +5,14 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 # Port bisa diganti lewat env, mis. untuk memeriksa artefak standalone/Docker:
 #   $env:SMOKE_BASE='http://localhost:3101'; ./smoke.ps1
 $base = if ($env:SMOKE_BASE) { $env:SMOKE_BASE } else { 'http://localhost:3100' }
-$secret = '3aec7dcfe2f974af6fb2ef83f066a35e68fbc53604830a68e09839525c1818e5'
+# Catatan: skrip ini TIDAK lagi menandatangani cookie sendiri. Sejak login
+# per akun, cookie memuat identitas (id/username/peran) yang ditandatangani
+# server, jadi satu-satunya cara jujur mendapatkannya adalah lewat POST /login.
+
+# Login sekarang per akun. Akun uji dibuat dengan:
+#   npm run user:create -- --username admin --name Administrator --role ADMIN --password <APP_PASSWORD>
+# Password tetap dibaca dari .env (APP_PASSWORD) supaya satu sumber kebenaran.
+$smokeUser = if ($env:SMOKE_USER) { $env:SMOKE_USER } else { 'admin' }
 
 # Password login dibaca dari .env supaya skrip tidak perlu diubah saat password
 # diganti. Fallback 'admin' sama dengan default di src/lib/session.ts.
@@ -51,17 +58,19 @@ function HasText([string]$label, [string]$body, [string]$needle, [bool]$want = $
   Check "$label $verb '$needle'" ($body.Contains($needle)) $want
 }
 
-# Id sebuah baris data master dari HTML /master. Id diambil dari input hidden
-# `name="id"` di dalam form Hapus baris itu, dan barisnya dikenali dari label
-# (teks `text-neutral-800`), bukan dari urutan — supaya tetap benar walau data
-# seed berubah urutannya.
+# Id sebuah baris data master dari HTML /master, dikenali dari labelnya (teks
+# `text-neutral-800`), bukan dari urutan — supaya tetap benar walau data seed
+# berubah urutannya.
 function Get-MasterRowId([string]$body, [string]$label) {
-  foreach ($m in [regex]::Matches($body, '(?s)<li class="py-2">(.*?)</li>')) {
-    $chunk = $m.Groups[1].Value
+  # Id dibaca dari atribut `data-row-id` pada <li>, bukan dari input hidden di
+  # dalam form Hapus: React memecah isi baris menjadi potongan yang di-stream
+  # terpisah (placeholder `<template id="P:…">`), jadi label dan form tidak
+  # selalu berada dalam satu chunk HTML.
+  foreach ($m in [regex]::Matches($body, '(?s)<li class="py-2" data-row-id="([^"]+)">(.*?)</li>')) {
+    $chunk = $m.Groups[2].Value
     $labelMatch = [regex]::Match($chunk, 'text-neutral-800">([^<]*)<')
     if (-not $labelMatch.Success -or $labelMatch.Groups[1].Value -ne $label) { continue }
-    $idMatch = [regex]::Match($chunk, 'name="id" value="([^"]+)"')
-    if ($idMatch.Success) { return $idMatch.Groups[1].Value }
+    return $m.Groups[1].Value
   }
   return ''
 }
@@ -69,9 +78,10 @@ function Get-MasterRowId([string]$body, [string]$label) {
 # Login sungguhan lewat form server action (jalur progressive enhancement):
 # React/Next menaruh id action + state awal di input hidden `$ACTION_*`, jadi
 # POST multipart biasa cukup untuk menirukan submit tanpa JavaScript. Ini
-# melatih `verifyPassword()` + `startSession()` di jalur nyata, bukan token
-# HMAC yang dibuat sendiri.
-function Submit-Login([string]$password, [string]$forwardedFor = '') {
+# melatih `verifyPasswordHash()` + `startSession()` di jalur nyata, bukan token
+# yang dibuat sendiri.
+function Submit-Login([string]$password, [string]$forwardedFor = '', [string]$user = '') {
+  if (-not $user) { $user = $smokeUser }
   $page = [System.Net.HttpWebRequest]::Create("$base/login")
   $page.AllowAutoRedirect = $false
   $pageRes = $page.GetResponse()
@@ -86,6 +96,8 @@ function Submit-Login([string]$password, [string]$forwardedFor = '') {
     $fields[$name] = $match.Groups[1].Value.Replace('&quot;', '"').Replace('&amp;', '&')
   }
   $fields['next'] = '/'
+  # Login kini per akun; akun uji dibuat oleh scripts/create-user.ts.
+  $fields['username'] = $user
   $fields['password'] = $password
 
   $form = New-Object System.Net.Http.MultipartFormDataContent
@@ -198,8 +210,10 @@ function Get-DetailValue([string]$html, [string]$label) {
 # `deleteItemAction` / `restoreItemAction` benar-benar dieksekusi, bukan hanya
 # halamannya di-GET. Form dipilih lewat teks tombolnya, supaya tetap benar walau
 # tombol Hapus dan Pulihkan sama-sama ada di satu halaman.
-function Submit-Action([string]$path, [string]$buttonText, [string]$idContains, [string]$cookie, [hashtable]$overrides = @{}, [hashtable]$file = @{}) {
-  $html = Get-Html $path $cookie
+function Submit-Action([string]$path, [string]$buttonText, [string]$idContains, [string]$cookie, [hashtable]$overrides = @{}, [hashtable]$file = @{}, [string]$sourceHtml = '') {
+  # `sourceHtml` dipakai untuk menguji penjagaan server: form diambil dari
+  # halaman milik admin, lalu dikirim memakai cookie peran lain.
+  $html = if ($sourceHtml) { $sourceHtml } else { Get-Html $path $cookie }
   $fields = $null
   foreach ($formMatch in [regex]::Matches($html, '(?s)<form\b.*?</form>')) {
     $chunk = $formMatch.Value
@@ -323,12 +337,6 @@ function Read-ZipEntry([string]$zipPath, [string]$entryName) {
   } finally { $zip.Dispose() }
 }
 
-$issuedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds().ToString()
-$hmac = New-Object System.Security.Cryptography.HMACSHA256
-$hmac.Key = [Text.Encoding]::UTF8.GetBytes($secret)
-$sig = ($hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($issuedAt)) | ForEach-Object { $_.ToString('x2') }) -join ''
-$token = "$issuedAt.$sig"
-
 [Console]::WriteLine('=== TANPA COOKIE ===')
 $anonRoot = Hit '/' $null
 $anonItems = Hit '/items' $null
@@ -339,8 +347,10 @@ $login = Hit '/login' $null
 $loginOk = Submit-Login $appPassword
 $loginBad = Submit-Login 'password-salah-pasti'
 $dashViaLogin = Hit '/' $loginOk.Cookie
+# Semua pemeriksaan "dengan cookie" memakai cookie hasil login sungguhan.
+$token = $loginOk.Cookie
 
-[Console]::WriteLine('=== DENGAN COOKIE SESI ===')
+[Console]::WriteLine('=== DENGAN COOKIE SESI (hasil login) ===')
 $dash = Hit '/' $token
 $items = Hit '/items' $token
 $itemsFiltered = Hit '/items?q=asus&status=AVAILABLE&sort=name_asc&page=1' $token
@@ -465,7 +475,8 @@ Check 'anon GET /items redirect' ($anonItems.Location -like '*/login*') $true
 Check 'anon GET /api/export status' $anonExport.Code 307
 Check 'GET /login status' $login.Code 200
 HasText 'login' $login.Body 'type="password"'
-HasText 'login' $login.Body 'Masukkan password untuk melanjutkan'
+HasText 'login' $login.Body 'Masuk dengan akun Anda untuk melanjutkan.'
+HasText 'login username field' $login.Body 'name="username"'
 
 # Jalur login sungguhan (POST form server action), bukan token bikinan sendiri.
 Check 'POST /login password benar status' $loginOk.Status 303
@@ -473,9 +484,17 @@ Check 'POST /login redirect ke /' $loginOk.Location '/'
 Check 'POST /login set cookie sesi' ([bool]$loginOk.Cookie) $true
 Check 'POST /login password salah status' $loginBad.Status 200
 Check 'POST /login password salah tanpa cookie' ([bool]$loginBad.Cookie) $false
-HasText 'login(gagal)' $loginBad.Body 'Password salah.'
+HasText 'login(gagal)' $loginBad.Body 'Username atau password salah.'
 Check 'auth GET / dengan cookie hasil login' $dashViaLogin.Code 200
 HasText 'dashboard(via login)' $dashViaLogin.Body '100.350.000'
+
+# Halaman kelola akun: tertutup untuk anonim, terbuka untuk admin.
+$usersAnon = Hit '/pengguna' ''
+$usersAdmin = Hit '/pengguna' $loginOk.Cookie
+Check 'anon GET /pengguna status' $usersAnon.Code 307
+Check 'admin GET /pengguna status' $usersAdmin.Code 200
+HasText 'pengguna(admin)' $usersAdmin.Body 'Tambah akun'
+HasText 'pengguna(admin) daftar akun' $usersAdmin.Body $smokeUser
 
 Check 'auth GET / status' $dash.Code 200
 Check 'auth GET /items status' $items.Code 200
@@ -644,9 +663,11 @@ if ($categoryId) {
   Check 'POST /master [Hapus kategori dipakai] status' $deniedCategory.Code 200
   Check 'hapus kategori: jumlah barang tampil' ([regex]::IsMatch($deniedCategory.Body, 'Kategori ini masih dipakai oleh \d+ barang\.')) $true
   HasText 'hapus kategori' $deniedCategory.Body 'Pindahkan atau ganti referensinya dulu sebelum menghapus.'
-  # Pesannya wajib jadi Alert: tanpa teks yang terbaca, penolakan tampak seperti
-  # tombol yang tidak bekerja.
-  HasText 'hapus kategori' $deniedCategory.Body 'role="alert"'
+  # Server Action pada komponen klien hanya mengembalikan payload RSC (bukan
+  # markup), jadi `role="alert"` tidak ada di body. Yang bisa dibuktikan dari
+  # sini: hasilnya state penolakan asli (`ok:false`), bukan klaim sukses.
+  Check 'hapus kategori: state ditolak' ($deniedCategory.Body.Contains('"ok":false') -or $deniedCategory.Body.Contains('\"ok\":false')) $true
+  HasText 'hapus kategori: bukan sukses' $deniedCategory.Body 'Kategori dihapus.' $false
   Check 'kategori yang dipakai tidak terhapus' (Get-MasterRowId (Hit '/master' $token).Body 'Elektronik') $categoryId
 }
 
@@ -657,7 +678,8 @@ if ($locationId) {
   # Lokasi yang muncul di riwayat pergerakan dapat nasihat berbeda: jejak audit
   # tidak boleh kehilangan tempat asal/tujuan barang.
   HasText 'hapus lokasi' $deniedLocation.Body 'Riwayat pergerakan tidak boleh kehilangan lokasi.'
-  HasText 'hapus lokasi' $deniedLocation.Body 'role="alert"'
+  Check 'hapus lokasi: state ditolak' ($deniedLocation.Body.Contains('"ok":false') -or $deniedLocation.Body.Contains('\"ok\":false')) $true
+  HasText 'hapus lokasi: bukan sukses' $deniedLocation.Body 'Lokasi dihapus.' $false
   Check 'lokasi yang dipakai tidak terhapus' (Get-MasterRowId (Hit '/master' $token).Body 'Gudang A') $locationId
 }
 
@@ -665,7 +687,8 @@ if ($branchId) {
   $deniedBranch = Submit-Action '/master' 'Hapus' $branchId $token
   Check 'POST /master [Hapus cabang dipakai] status' $deniedBranch.Code 200
   Check 'hapus cabang: jumlah barang & lokasi tampil' ([regex]::IsMatch($deniedBranch.Body, 'Cabang ini masih dipakai oleh \d+ barang, \d+ lokasi\.')) $true
-  HasText 'hapus cabang' $deniedBranch.Body 'role="alert"'
+  Check 'hapus cabang: state ditolak' ($deniedBranch.Body.Contains('"ok":false') -or $deniedBranch.Body.Contains('\"ok\":false')) $true
+  HasText 'hapus cabang: bukan sukses' $deniedBranch.Body 'Cabang dihapus.' $false
   Check 'cabang yang dipakai tidak terhapus' (Get-MasterRowId (Hit '/master' $token).Body 'Kantor Pusat') $branchId
 }
 
@@ -1258,6 +1281,72 @@ $opnCounts2 = Get-OpnameCounts $opnLines2 $opnTargetKey2 (-1)
 $null = Submit-Action "/opname/$opnId2" 'Simpan hitungan' '' $token $opnCounts2
 $opnRestore = Submit-Action "/opname/$opnId2" 'Tutup opname' '' $token
 HasText 'opname sesi pemulihan menutup' $opnRestore.Body '1 barang disesuaikan'
+
+[Console]::WriteLine('=== PERAN & IZIN (RBAC) ===')
+# Akun uji dibuat lewat skrip yang sama dengan operator, lalu dihapus lagi di
+# akhir bagian ini supaya isi database kembali seperti semula.
+$staffUser = 'smoke-staff'
+$staffPass = 'SmokeStaff#2026'
+$viewerUser = 'smoke-viewer'
+$viewerPass = 'SmokeViewer#2026'
+# `npm run ... -- --flag` tidak meneruskan argumen dengan benar dari PowerShell,
+# jadi skripnya dipanggil langsung lewat tsx.
+& npx --no-install tsx scripts/create-user.ts --username $staffUser --name 'Smoke Staff' --role STAFF --password $staffPass | Out-Null
+& npx --no-install tsx scripts/create-user.ts --username $viewerUser --name 'Smoke Viewer' --role VIEWER --password $viewerPass | Out-Null
+
+$staffLogin = Submit-Login $staffPass '' $staffUser
+$viewerLogin = Submit-Login $viewerPass '' $viewerUser
+Check 'staff login status' $staffLogin.Status 303
+Check 'staff login dapat cookie' ([bool]$staffLogin.Cookie) $true
+Check 'viewer login status' $viewerLogin.Status 303
+Check 'viewer login dapat cookie' ([bool]$viewerLogin.Cookie) $true
+
+# Halaman pengguna: tertutup untuk staff (menu disembunyikan, isi diganti pesan).
+$staffUsersPage = Hit '/pengguna' $staffLogin.Cookie
+Check 'staff GET /pengguna status' $staffUsersPage.Code 200
+HasText 'staff /pengguna ditolak' $staffUsersPage.Body 'Halaman ini hanya untuk admin'
+HasText 'staff /pengguna tanpa form tambah' $staffUsersPage.Body 'Tambah akun' $false
+Check 'staff nav tanpa menu Pengguna' (Hit '/items' $staffLogin.Cookie).Body.Contains('href="/pengguna"') $false
+Check 'admin nav punya menu Pengguna' $items.Body.Contains('href="/pengguna"') $true
+
+# Data master = admin-only. Staff yang menekan Hapus harus dipindahkan ke
+# dashboard dengan alasan, dan barisnya tetap ada.
+$staffMaster = Hit '/master' $staffLogin.Cookie
+# Tombol kelola tetap ada di markup tetapi `hidden` (struktur baris identik
+# antar peran), jadi yang diperiksa adalah penandanya.
+HasText 'staff /master aksi disembunyikan' $staffMaster.Body 'data-actions="hidden"'
+HasText 'staff /master bukan aksi tampil' $staffMaster.Body 'data-actions="shown"' $false
+HasText 'staff /master tetap melihat daftar' $staffMaster.Body 'Elektronik'
+
+if ($categoryId) {
+  # Penjagaan sesungguhnya ada di server: form milik admin dikirim dengan cookie
+  # staff, hasilnya harus dialihkan ke dashboard dengan alasan.
+  $staffDelete = Submit-Action '/master' 'Hapus' $categoryId $staffLogin.Cookie @{} @{} $master.Body
+  Check 'staff POST /master [Hapus] dialihkan' $staffDelete.Code 303
+  HasText 'staff hapus master diarahkan ke penolakan' $staffDelete.Location '/?denied=admin'
+  Check 'staff tidak menghapus kategori' (Get-MasterRowId (Hit '/master' $token).Body 'Elektronik') $categoryId
+}
+
+# Viewer tidak boleh menulis sama sekali, termasuk menambah barang.
+$viewerForm = Hit '/items/new' $viewerLogin.Cookie
+Check 'viewer GET /items/new status' $viewerForm.Code 200
+HasText 'viewer /items/new menjelaskan penolakan' $viewerForm.Body 'Akun viewer hanya bisa melihat data'
+HasText 'viewer /items/new tanpa form' $viewerForm.Body 'Simpan Barang' $false
+$viewerCreate = Submit-Action '/items/new' 'Simpan Barang' '' $viewerLogin.Cookie @{} @{} $newItem.Body
+Check 'viewer POST /items/new dialihkan' $viewerCreate.Code 303
+HasText 'viewer tambah barang diarahkan ke penolakan' $viewerCreate.Location '/?denied=write'
+HasText 'dashboard menjelaskan penolakan viewer' (Hit '/?denied=write' $viewerLogin.Cookie).Body 'Akun viewer hanya bisa melihat data'
+
+# Staff tetap boleh menulis: form kosong ditolak validasi (200 + pesan field),
+# bukan dialihkan karena peran.
+$staffForm = Hit '/items/new' $staffLogin.Cookie
+Check 'staff GET /items/new status' $staffForm.Code 200
+$staffCreate = Submit-Action '/items/new' 'Simpan Barang' '' $staffLogin.Cookie
+Check 'staff POST /items/new tidak dialihkan karena peran' $staffCreate.Code 200
+
+foreach ($name in @($staffUser, $viewerUser)) {
+  & npx --no-install tsx scripts/create-user.ts --username $name --delete | Out-Null
+}
 
 
 [Console]::WriteLine('')

@@ -7,7 +7,7 @@ import {
   refreshItemSearchKeys,
   type ActionState,
 } from "@/lib/action-utils";
-import { requireAuth } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { CACHE_TAGS } from "@/lib/queries";
 import {
@@ -77,7 +77,7 @@ export async function saveBranchAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  await requireAdmin();
 
   const id = String(formData.get("id") ?? "").trim();
   const parsed = branchSchema.safeParse(formToObject(formData));
@@ -124,7 +124,7 @@ export async function deleteBranchAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  await requireAdmin();
 
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return { ok: false, message: "ID cabang tidak ditemukan." };
@@ -168,7 +168,7 @@ export async function saveDepartmentAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  await requireAdmin();
 
   const id = String(formData.get("id") ?? "").trim();
   const parsed = departmentSchema.safeParse(formToObject(formData));
@@ -212,7 +212,7 @@ export async function deleteDepartmentAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  await requireAdmin();
 
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return { ok: false, message: "ID unit pengelola tidak ditemukan." };
@@ -240,7 +240,7 @@ export async function saveCategoryAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  await requireAdmin();
 
   const id = String(formData.get("id") ?? "").trim();
   const parsed = categorySchema.safeParse(formToObject(formData));
@@ -281,7 +281,7 @@ export async function deleteCategoryAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  await requireAdmin();
 
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return { ok: false, message: "ID kategori tidak ditemukan." };
@@ -309,7 +309,7 @@ export async function saveBrandAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  await requireAdmin();
 
   const id = String(formData.get("id") ?? "").trim();
   const parsed = brandSchema.safeParse(formToObject(formData));
@@ -346,7 +346,7 @@ export async function deleteBrandAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  await requireAdmin();
 
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return { ok: false, message: "ID merek tidak ditemukan." };
@@ -374,7 +374,7 @@ export async function saveLocationAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  await requireAdmin();
 
   const id = String(formData.get("id") ?? "").trim();
   const parsed = locationSchema.safeParse(formToObject(formData));
@@ -420,7 +420,7 @@ export async function deleteLocationAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  await requireAdmin();
 
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return { ok: false, message: "ID lokasi tidak ditemukan." };
@@ -457,7 +457,7 @@ export async function saveSupplierAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  await requireAdmin();
 
   const id = String(formData.get("id") ?? "").trim();
   const parsed = supplierSchema.safeParse(formToObject(formData));
@@ -501,7 +501,7 @@ export async function deleteSupplierAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await requireAuth();
+  await requireAdmin();
 
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return { ok: false, message: "ID supplier tidak ditemukan." };

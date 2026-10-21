@@ -1,13 +1,37 @@
 /**
  * Sesi berbasis cookie bertanda tangan HMAC-SHA256.
  *
- * Sengaja memakai Web Crypto (`crypto.subtle`) dan bukan `node:crypto`
- * supaya modul yang sama bisa dipakai di Proxy (edge runtime) maupun di
- * Server Actions (node runtime).
+ * Sengaja memakai Web Crypto (`crypto.subtle`) dan bukan `node:crypto` supaya
+ * modul yang sama bisa dipakai di Proxy (edge runtime) maupun di Server Actions
+ * (node runtime).
+ *
+ * Sejak multi-user, isi cookie bukan lagi "kapan login" saja, tapi identitas
+ * yang ditandatangani:
+ *
+ *   <base64url({u,n,r,t})>.<hmac-hex>
+ *
+ * Dengan begitu proxy bisa tahu siapa pemilik cookie tanpa menyentuh database
+ * (edge runtime tidak bisa memakai Prisma), sedangkan pemeriksaan yang butuh
+ * data hidup (akun masih aktif? perannya berubah?) dilakukan di `src/lib/auth.ts`.
+ * Cookie yang dibuat versi lama (`<timestamp>.<hmac>`) otomatis tidak sah lagi,
+ * jadi semua pengguna perlu login ulang sekali setelah upgrade ini.
  */
 
 export const SESSION_COOKIE = "inventory_session";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7; // 7 hari
+
+export type SessionRole = "ADMIN" | "STAFF" | "VIEWER";
+
+export type SessionPayload = {
+  /** id akun (`User.id`) */
+  u: string;
+  /** username, dipakai untuk ditampilkan & jejak audit */
+  n: string;
+  /** peran saat login; peran terbaru tetap dibaca dari database */
+  r: SessionRole;
+  /** waktu terbit (ms) */
+  t: number;
+};
 
 /**
  * Nilai cadangan yang HANYA boleh dipakai saat `next dev`. Semuanya tertulis di
@@ -97,41 +121,90 @@ function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-/** Token berformat `<issuedAt>.<hmac>`. */
-export async function createSessionToken(): Promise<string> {
-  const issuedAt = Date.now().toString();
-  return `${issuedAt}.${await hmacHex(issuedAt)}`;
+function toBase64Url(text: string): string {
+  const bytes = encoder.encode(text);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export async function verifySessionToken(
-  token: string | undefined | null,
-): Promise<boolean> {
-  if (!token) return false;
+function fromBase64Url(value: string): string | null {
+  try {
+    const padded = value.replace(/-/g, "+").replace(/_/g, "/");
+    const binary = atob(padded.padEnd(Math.ceil(padded.length / 4) * 4, "="));
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return null;
+  }
+}
 
-  const [issuedAt, signature] = token.split(".");
-  if (!issuedAt || !signature) return false;
-
-  const issued = Number(issuedAt);
-  if (!Number.isFinite(issued)) return false;
-
-  const age = Date.now() - issued;
-  if (age < 0 || age > SESSION_MAX_AGE_SECONDS * 1000) return false;
-
-  return safeEqual(await hmacHex(issuedAt), signature);
+/** Token untuk satu pengguna: `<payload b64url>.<hmac>`. */
+export async function createSessionToken(
+  user: { id: string; username: string; role: SessionRole },
+): Promise<string> {
+  const payload: SessionPayload = {
+    u: user.id,
+    n: user.username,
+    r: user.role,
+    t: Date.now(),
+  };
+  const body = toBase64Url(JSON.stringify(payload));
+  return `${body}.${await hmacHex(body)}`;
 }
 
 /**
- * Password yang diharapkan. Di `next dev` boleh jatuh ke `admin`; di produksi
- * nilai kosong atau password yang sudah tertulis di repo membuat fungsi ini
- * melempar error.
+ * Verifikasi tanda tangan + umur token, lalu kembalikan isinya. `null` berarti
+ * cookie tidak sah/kedaluwarsa — BUKAN berarti akunnya masih ada atau aktif
+ * (`src/lib/auth.ts` yang memeriksa itu ke database).
  */
-function getAppPassword(): string {
+export async function verifySessionToken(
+  token: string | undefined | null,
+): Promise<SessionPayload | null> {
+  if (!token) return null;
+
+  const [body, signature] = token.split(".");
+  if (!body || !signature) return null;
+  if (!safeEqual(await hmacHex(body), signature)) return null;
+
+  const json = fromBase64Url(body);
+  if (!json) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+
+  const payload = parsed as Partial<SessionPayload>;
+  if (
+    typeof payload.u !== "string" ||
+    typeof payload.n !== "string" ||
+    typeof payload.t !== "number" ||
+    (payload.r !== "ADMIN" && payload.r !== "STAFF" && payload.r !== "VIEWER")
+  ) {
+    return null;
+  }
+
+  const age = Date.now() - payload.t;
+  if (age < 0 || age > SESSION_MAX_AGE_SECONDS * 1000) return null;
+
+  return payload as SessionPayload;
+}
+
+/**
+ * Password admin awal. Sejak multi-user, ini BUKAN lagi password login: nilainya
+ * dipakai `npm run user:create` saat menyiapkan akun pertama (dan tetap divalidasi
+ * ketat di produksi supaya instalasi baru tidak memakai password contoh repo).
+ */
+export function getBootstrapPassword(): string {
   const value = process.env.APP_PASSWORD ?? "";
 
   if (!isProduction()) return value || DEV_APP_PASSWORD;
 
   if (!value) {
-    throw new Error(missingEnvMessage("APP_PASSWORD", "password login aplikasi"));
+    throw new Error(missingEnvMessage("APP_PASSWORD", "password admin awal"));
   }
   if (WEAK_APP_PASSWORDS.has(value.trim().toLowerCase())) {
     throw new Error(
@@ -140,9 +213,4 @@ function getAppPassword(): string {
   }
 
   return value;
-}
-
-/** Bandingkan password yang diketik dengan APP_PASSWORD. */
-export function verifyPassword(input: string): boolean {
-  return safeEqual(input, getAppPassword());
 }

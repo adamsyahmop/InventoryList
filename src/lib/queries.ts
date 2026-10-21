@@ -18,6 +18,7 @@ export const CACHE_TAGS = {
   master: "master",
   dashboard: "dashboard",
   opnames: "opnames",
+  users: "users",
 } as const;
 
 /**
@@ -556,5 +557,25 @@ export async function getOpname(id: string) {
       branch: true,
       lines: { orderBy: { itemCode: "asc" } },
     },
+  });
+}
+
+/** Daftar akun untuk halaman kelola pengguna (admin). */
+export async function listUsers() {
+  "use cache";
+  cacheTag(CACHE_TAGS.users);
+  cacheLife("minutes");
+
+  return prisma.user.findMany({
+    select: {
+      id: true,
+      username: true,
+      name: true,
+      role: true,
+      active: true,
+      lastLoginAt: true,
+      createdAt: true,
+    },
+    orderBy: [{ active: "desc" }, { role: "asc" }, { username: "asc" }],
   });
 }

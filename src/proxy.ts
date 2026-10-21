@@ -5,9 +5,11 @@ const PUBLIC_PATHS = new Set(["/login"]);
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const authenticated = await verifySessionToken(
-    request.cookies.get(SESSION_COOKIE)?.value,
-  );
+  // Proxy hanya memeriksa tanda tangan & umur cookie (edge, tanpa database).
+  // Status akun (nonaktif/dihapus) diperiksa di `getSession()` saat request
+  // mencapai server, sehingga akun yang dinonaktifkan langsung kehilangan akses.
+  const authenticated =
+    (await verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value)) !== null;
 
   if (PUBLIC_PATHS.has(pathname)) {
     return authenticated

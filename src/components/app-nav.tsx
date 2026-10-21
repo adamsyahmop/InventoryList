@@ -5,14 +5,28 @@ import { usePathname } from "next/navigation";
 import { logoutAction } from "@/lib/actions/auth";
 import { cn } from "@/lib/utils";
 
-const NAV_ITEMS = [
+export type NavUser = {
+  name: string;
+  username: string;
+  role: "ADMIN" | "STAFF" | "VIEWER";
+};
+
+const ROLE_LABELS = { ADMIN: "Admin", STAFF: "Staff", VIEWER: "Viewer" } as const;
+
+/**
+ * Menu dengan peran minimum. Menyembunyikan menu BUKAN pengamanan — setiap
+ * action memakai `requireAdmin`/`requireWrite`; ini hanya supaya pengguna tidak
+ * menekan tombol yang pasti ditolak.
+ */
+const NAV_ITEMS: { href: string; label: string; role?: NavUser["role"] }[] = [
   { href: "/", label: "Dashboard" },
   { href: "/items", label: "Barang" },
   { href: "/items/terhapus", label: "Sampah" },
   { href: "/movements", label: "Pergerakan" },
   { href: "/opname", label: "Stock Opname" },
   { href: "/master", label: "Data Master" },
-] as const;
+  { href: "/pengguna", label: "Pengguna", role: "ADMIN" },
+];
 
 function matches(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
@@ -33,9 +47,12 @@ function activeHref(pathname: string): string | null {
   return best;
 }
 
-export function AppNav() {
+export function AppNav({ user }: { user: NavUser | null }) {
   const pathname = usePathname();
   const current = activeHref(pathname);
+  const items = NAV_ITEMS.filter(
+    (item) => !item.role || (user !== null && user.role === item.role),
+  );
 
   return (
     <header className="sticky top-0 z-20 border-b border-neutral-200 bg-white/90 backdrop-blur">
@@ -50,7 +67,7 @@ export function AppNav() {
         </Link>
 
         <nav className="flex flex-1 items-center gap-1 overflow-x-auto">
-          {NAV_ITEMS.map((item) => (
+          {items.map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -74,6 +91,15 @@ export function AppNav() {
           >
             Export Excel
           </a>
+          {user ? (
+            <span
+              className="hidden text-xs leading-tight text-neutral-500 sm:block"
+              title={`@${user.username}`}
+            >
+              <span className="block font-medium text-neutral-800">{user.name}</span>
+              {ROLE_LABELS[user.role]}
+            </span>
+          ) : null}
           <form action={logoutAction}>
             <button
               type="submit"
