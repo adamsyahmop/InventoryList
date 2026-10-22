@@ -579,3 +579,34 @@ export async function listUsers() {
     orderBy: [{ active: "desc" }, { role: "asc" }, { username: "asc" }],
   });
 }
+
+/**
+ * Bahan laporan nilai buku: semua barang yang belum dihapus, lengkap dengan
+ * umur ekonomis kategorinya. Perhitungan penyusutan **tidak** di sini melainkan
+ * di `src/lib/depreciation.ts` (fungsi murni) supaya angka yang tampil bisa
+ * diuji tanpa server dan tetap satu sumber.
+ */
+export async function getBookValueItems() {
+  "use cache";
+  cacheTag(CACHE_TAGS.items, CACHE_TAGS.master);
+  cacheLife("minutes");
+
+  return prisma.item.findMany({
+    where: { deletedAt: null },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      quantity: true,
+      price: true,
+      purchaseDate: true,
+      status: true,
+      soldAt: true,
+      soldPrice: true,
+      disposedAt: true,
+      category: { select: { name: true, usefulLifeMonths: true } },
+      location: { select: { name: true } },
+    },
+    orderBy: [{ purchaseDate: "desc" }, { code: "asc" }],
+  });
+}

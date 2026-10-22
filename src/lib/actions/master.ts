@@ -257,6 +257,8 @@ export async function saveCategoryAction(
     name: data.name,
     code: data.code ?? null,
     description: data.description ?? null,
+    // `null` = kategori ini mengikuti umur ekonomis bawaan.
+    usefulLifeMonths: data.usefulLifeMonths ?? null,
   };
 
   try {

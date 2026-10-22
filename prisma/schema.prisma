@@ -92,6 +92,9 @@ model Category {
   name        String   @unique
   code        String?  @unique
   description String?
+  /// Umur ekonomis (bulan) untuk penyusutan garis lurus. `null` = pakai
+  /// `DEFAULT_USEFUL_LIFE_MONTHS` (48) di `src/lib/depreciation.ts`.
+  usefulLifeMonths Int?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

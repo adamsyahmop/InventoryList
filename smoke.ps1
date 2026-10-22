@@ -1344,6 +1344,65 @@ Check 'staff GET /items/new status' $staffForm.Code 200
 $staffCreate = Submit-Action '/items/new' 'Simpan Barang' '' $staffLogin.Cookie
 Check 'staff POST /items/new tidak dialihkan karena peran' $staffCreate.Code 200
 
+[Console]::WriteLine('=== NILAI BUKU (penyusutan) ===')
+$bvAnon = Hit '/laporan/nilai-buku' ''
+Check 'anon GET /laporan/nilai-buku dialihkan' $bvAnon.Code 307
+$bv = Hit '/laporan/nilai-buku' $token
+Check 'GET /laporan/nilai-buku status' $bv.Code 200
+HasText 'nilai buku punya tabel' $bv.Body 'Nilai buku per barang'
+HasText 'nilai buku punya bagian pelepasan' $bv.Body 'Hasil pelepasan vs nilai buku'
+HasText 'nav memuat menu Nilai Buku' $bv.Body 'Nilai Buku'
+
+# Arsitektur angka: setiap baris membawa cost/penyusutan/nilai buku, jadi
+# identitas "penyusutan + nilai buku = perolehan" bisa diuji tanpa menebak
+# tanggal hari ini.
+$bvRows = [regex]::Matches($bv.Body, '<tr[^>]*data-item-code="[^"]*"[^>]*>')
+Check 'nilai buku punya baris berdata' ($bvRows.Count -gt 0) $true
+$sumCost = 0; $sumAcc = 0; $sumBook = 0
+foreach ($row in $bvRows) {
+  $costMatch = [regex]::Match($row.Value, 'data-cost="(\d+)"')
+  $accMatch = [regex]::Match($row.Value, 'data-accumulated="(\d+)"')
+  $bookMatch = [regex]::Match($row.Value, 'data-book-value="(\d+)"')
+  if (-not ($costMatch.Success -and $accMatch.Success -and $bookMatch.Success)) { continue }
+  $sumCost += [int64]$costMatch.Groups[1].Value
+  $sumAcc += [int64]$accMatch.Groups[1].Value
+  $sumBook += [int64]$bookMatch.Groups[1].Value
+}
+Check 'nilai buku: penyusutan + nilai buku = perolehan' ($sumAcc + $sumBook) $sumCost
+Check 'nilai buku: ada nilai buku positif' ($sumBook -gt 0) $true
+Check 'nilai buku: tidak ada nilai negatif' (($sumAcc -ge 0) -and ($sumBook -ge 0)) $true
+
+# Barang yang sudah dijual/dibuang wajib muncul di bagian pelepasan dengan
+# laba/rugi; kalau tidak, laporan "hasil penjualan vs nilai buku" bohong.
+$soldCount = ([regex]::Matches((Hit '/items?status=SOLD' $token).Body, 'data-item-code=')).Count
+$disposalRows = [regex]::Matches($bv.Body, 'data-gain-loss="-?\d+"')
+if ($soldCount -gt 0) {
+  Check 'nilai buku: barang terjual muncul di pelepasan' ($disposalRows.Count -ge 1) $true
+}
+
+# Viewer boleh membaca laporan (read-only), tanpa tombol ubah apa pun.
+$bvViewer = Hit '/laporan/nilai-buku' $viewerLogin.Cookie
+Check 'viewer GET /laporan/nilai-buku status' $bvViewer.Code 200
+HasText 'viewer boleh melihat nilai buku' $bvViewer.Body 'Nilai buku per barang'
+
+# Umur ekonomis per kategori: disimpan, tampil di daftar master, dan dipakai
+# laporan. Kategori sementara dibuat lalu dihapus lagi.
+$tmpCat = 'ZZ-Smoke-Susut'
+$saveCat = Submit-Action '/master' 'Tambah' 'id="Kategori-name"' $token @{ name = $tmpCat; code = 'ZZSUSUT'; description = ''; usefulLifeMonths = '24' }
+Check 'POST /master [Tambah kategori + umur ekonomis] status' $saveCat.Code 200
+HasText 'umur ekonomis tersimpan' $saveCat.Body 'Kategori ditambahkan.'
+$catAfter = Hit '/master' $token
+HasText 'umur ekonomis tampil di daftar master' $catAfter.Body 'susut 24 bln'
+$tmpCatId = Get-MasterRowId $catAfter.Body $tmpCat
+if ($tmpCatId) {
+  $rmCat = Submit-Action '/master' 'Hapus' $tmpCatId $token
+  HasText 'kategori uji susut dihapus' $rmCat.Body 'Kategori dihapus.'
+}
+
+# Umur ekonomis yang tidak masuk akal ditolak, bukan disimpan diam-diam.
+$badLife = Submit-Action '/master' 'Tambah' 'id="Kategori-name"' $token @{ name = 'ZZ-Smoke-BadLife'; code = 'ZZBAD'; description = ''; usefulLifeMonths = '0' }
+HasText 'umur ekonomis 0 ditolak' $badLife.Body 'minimal 1 bulan'
+
 foreach ($name in @($staffUser, $viewerUser)) {
   & npx --no-install tsx scripts/create-user.ts --username $name --delete | Out-Null
 }

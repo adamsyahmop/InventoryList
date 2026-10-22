@@ -5,6 +5,7 @@ import {
   ItemStatus,
 } from "@/generated/prisma/enums";
 import { ITEM_TYPE_VALUES } from "@/lib/constants";
+import { MAX_USEFUL_LIFE_MONTHS } from "@/lib/depreciation";
 import { MIN_PASSWORD_LENGTH } from "@/lib/passwords";
 
 /** FormData mengirim string kosong untuk field yang tidak diisi. */
@@ -133,6 +134,17 @@ const namedSchema = (label: string, max = 150) =>
 export const categorySchema = namedSchema("Nama kategori").extend({
   code: optionalString(20),
   description: optionalString(500),
+  // Kosong = ikut bawaan (48 bulan). Dibulatkan ke bilangan bulat bulan karena
+  // penyusutan dihitung per bulan penuh.
+  usefulLifeMonths: z.preprocess(
+    emptyToUndefined,
+    z.coerce
+      .number({ error: "Umur ekonomis harus berupa angka" })
+      .int("Umur ekonomis harus bilangan bulat (bulan)")
+      .min(1, "Umur ekonomis minimal 1 bulan")
+      .max(MAX_USEFUL_LIFE_MONTHS, `Umur ekonomis maksimal ${MAX_USEFUL_LIFE_MONTHS} bulan`)
+      .optional(),
+  ),
 });
 
 export const brandSchema = namedSchema("Nama merek").extend({

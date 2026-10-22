@@ -24,6 +24,7 @@ const NAV_ITEMS: { href: string; label: string; role?: NavUser["role"] }[] = [
   { href: "/items/terhapus", label: "Sampah" },
   { href: "/movements", label: "Pergerakan" },
   { href: "/opname", label: "Stock Opname" },
+  { href: "/laporan/nilai-buku", label: "Nilai Buku" },
   { href: "/master", label: "Data Master" },
   { href: "/pengguna", label: "Pengguna", role: "ADMIN" },
 ];

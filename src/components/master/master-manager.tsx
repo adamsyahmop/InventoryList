@@ -13,7 +13,7 @@ export type MasterOption = { value: string; label: string };
 export type MasterFieldDef = {
   name: string;
   label: string;
-  type?: "text" | "email" | "textarea" | "select";
+  type?: "text" | "email" | "number" | "textarea" | "select";
   placeholder?: string;
   required?: boolean;
   /** Hanya dipakai bila `type` = "select". */

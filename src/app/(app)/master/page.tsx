@@ -40,6 +40,14 @@ const DEPARTMENT_FIELDS: MasterFieldDef[] = [
 const CATEGORY_FIELDS: MasterFieldDef[] = [
   { name: "name", label: "Nama kategori", required: true, placeholder: "Elektronik" },
   { name: "code", label: "Kode", placeholder: "ELK" },
+  // Dipakai laporan nilai buku. Dikosongkan = ikut bawaan
+  // `DEFAULT_USEFUL_LIFE_MONTHS` (48 bulan), lihat `src/lib/depreciation.ts`.
+  {
+    name: "usefulLifeMonths",
+    label: "Umur ekonomis (bulan)",
+    type: "number",
+    placeholder: "48",
+  },
   { name: "description", label: "Deskripsi", type: "textarea" },
 ];
 
@@ -137,11 +145,20 @@ async function MasterData() {
   const categoryRows: MasterRow[] = categories.map((category) => ({
     id: category.id,
     label: category.name,
-    meta: joinMeta(category.code, category.description),
+    meta: joinMeta(
+      category.code,
+      category.usefulLifeMonths
+        ? `susut ${category.usefulLifeMonths} bln`
+        : "susut 48 bln (bawaan)",
+      category.description,
+    ),
     values: {
       name: category.name,
       code: category.code ?? "",
       description: category.description ?? "",
+      usefulLifeMonths: category.usefulLifeMonths
+        ? String(category.usefulLifeMonths)
+        : "",
     },
   }));
 

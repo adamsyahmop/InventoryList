@@ -1311,7 +1311,8 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
 - ✅ **SELESAI (Paket 10)** — `/movements` paginasi + filter.
 - ✅ **SELESAI (Paket 12)** — stock opname di `/opname` (snapshot stok, hitung
   per baris, tutup → selisih diterapkan + pergerakan).
-- **Penyusutan & laporan "hasil penjualan vs nilai buku"** → rujuk "Sisa ide".
+- ✅ **SELESAI (Paket 7)** — penyusutan garis lurus + laporan nilai buku di
+  `/laporan/nilai-buku` (umur ekonomis per kategori, laba/rugi pelepasan).
 - **Multi-user & peran** → rujuk "Kandidat paket berikutnya".
 
 ### Tier C — rekayasa & operasional
@@ -1340,8 +1341,7 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
    butir 3 (Paket 6), butir 4 (Paket 7). **Berikutnya: Tier B — import `.xlsx`.**
 2. Tier B: ✅ import Excel (Paket 8), ✅ ekspor ikut filter (Paket 9),
    ✅ `/movements` filter+paginasi (Paket 10), ✅ label massal (Paket 11),
-   ✅ stock opname (Paket 12). Berikutnya: **penyusutan / laporan nilai buku** →
-   multi-user.
+   ✅ stock opname (Paket 12), ✅ penyusutan / laporan nilai buku (Paket 7).
 3. Tier C: target DB produksi → backup → CI → unit test.
 
 ## Paket 5 #1 — `searchKey` tidak lagi basi (sesi 15 Oktober 2026)
@@ -1716,6 +1716,69 @@ setiap pengguna perlu login sekali lagi.
 - Redirect di dalam child yang di-`<Suspense>` **tidak** mengubah status HTTP
   (shell sudah 200). Untuk penolakan GET, tampilkan pemberitahuan di halaman,
   bukan `redirect()`.
+
+## Paket 7 — penyusutan & laporan nilai buku (sesi 21 Oktober 2026)
+
+### Keputusan
+
+- **Garis lurus (straight-line) per bulan, tanpa nilai residu.** Inventaris kantor
+  tidak punya residu yang bisa dipertanggungjawabkan, dan saldo menurun butuh tarif
+  per kelompok aset yang lebih sulit dijelaskan ke keuangan. Dua parameter yang
+  sudah ada (harga & tanggal perolehan) + satu opsional per kategori.
+- **Umur ekonomis per kategori** (`Category.usefulLifeMonths`), bukan per barang:
+  satu tempat ubah, dan barang baru langsung ikut aturan kategorinya. Kosong =
+  `DEFAULT_USEFUL_LIFE_MONTHS` (48 bulan) di `src/lib/depreciation.ts`.
+- **Per bulan penuh**, dibulatkan ke rupiah terdekat. Barang yang dibeli bulan ini
+  masih bernilai penuh; barang yang umurnya melewati umur ekonomis bernilai 0.
+  Dua perilaku ini sengaja dipilih karena bisa dicek manual tanpa alat bantu.
+- **`price` adalah harga satuan**, jadi semua angka laporan dikalikan `quantity`.
+  Sama seperti "Total nilai" di halaman detail dan kartu dashboard.
+- **Barang yang sudah dilepas** dihitung sampai tanggal jual/buang, bukan hari ini
+  — kalau tidak, laba/rugi pelepasan berubah setiap laporan dibuka.
+- Laporan memisahkan dua pertanyaan: **nilai buku barang aktif** (`/laporan/nilai-buku`)
+  dan **hasil pelepasan vs nilai buku** (jual → laba/rugi, buang → nilai yang
+  dihapus dari pembukuan).
+
+### Yang berubah
+
+| Berkas | Isi |
+| --- | --- |
+| `src/lib/depreciation.ts` | fungsi murni: `monthsBetween`, `bookValuePerUnit`, `depreciationFor`, `disposalOutcome`, `resolveUsefulLifeMonths` |
+| `prisma/schema.prisma` | `Category.usefulLifeMonths Int?` + migrasi `category_useful_life` |
+| `src/lib/queries.ts` | `getBookValueItems()` (cache tag `items` + `master`) |
+| `src/app/(app)/laporan/nilai-buku/page.tsx` | kartu ringkasan, tabel per barang, tabel pelepasan |
+| `src/components/app-nav.tsx` | menu **Nilai Buku** |
+| `src/app/(app)/master/page.tsx` | field "Umur ekonomis (bulan)" + meta `susut N bln` di daftar kategori |
+| `src/lib/validations.ts` | `usefulLifeMonths` 1..600, bulat; `0` ditolak dengan pesan |
+| `smoke.ps1` | bagian **NILAI BUKU** (16 pemeriksaan) |
+
+### Bukti (dijalankan langsung, bukan dari ingatan)
+
+- `tsc` 0, `eslint --max-warnings=0` 0, `npm run build` sukses.
+- `smoke.ps1`: **431 pemeriksaan, 0 gagal** (sebelumnya 415).
+- **Angka laporan dicek ulang dengan perhitungan terpisah** (Python membaca
+  `dev.db` langsung lalu membandingkan tiap baris HTML): 9 baris aktif semuanya
+  identik — total perolehan **Rp 100.350.000**, akumulasi **Rp 26.255.207**,
+  nilai buku **Rp 74.094.793** (sama dengan "nilai perolehan" di dashboard).
+- Bagian pelepasan juga cocok: `INV-2026-0009-PC` (SOLD) **+466.666** dan
+  `INV-2026-0008-PRN` (DISPOSED) **−462.500**.
+- Pemeriksaan aritmetika di smoke memakai identitas *penyusutan + nilai buku =
+  perolehan* per baris (`data-cost`, `data-accumulated`, `data-book-value`), jadi
+  tidak bergantung pada tanggal hari ini dan tidak menyalin rumus ke PowerShell.
+- Umur ekonomis diuji lewat form master: kategori `ZZ-Smoke-Susut` disimpan dengan
+  24 bulan → daftar menampilkan `susut 24 bln` → kategori dihapus lagi. Nilai `0`
+  ditolak ("minimal 1 bulan"), bukan disimpan diam-diam.
+
+### Catatan teknis
+
+- `new Date()` di server component **wajib** didahului `await connection()`, kalau
+  tidak build gagal dengan `blocking-prerender-current-time`.
+- Aturan eslint `react-hooks/immutability` menolak akumulator yang dimutasi di
+  dalam `.map()`; hitung baris dulu, lalu total lewat `reduce`. `sort` juga dibuat
+  pada salinan (`[...rows].sort`).
+- Tanggal disimpan UTC; `monthsBetween` membandingkan komponen UTC dan mengurangi
+  satu bulan bila tanggal belum genap — supaya "1 bulan" berarti satu bulan
+  kalender penuh, bukan 30 hari.
 
 ## Hal teknis yang perlu diingat (jangan diulang salahnya)
 
