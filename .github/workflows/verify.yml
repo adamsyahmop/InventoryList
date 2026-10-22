@@ -1,0 +1,115 @@
+name: verify
+
+# Satu alur, urutan yang sama seperti verifikasi lokal di CATATAN-LANJUTAN.md:
+# tsc → eslint → unit test → build → seed → smoke (terhadap `next start`).
+# Sengaja Windows: `smoke.ps1` memakai PowerShell + System.Net.HttpWebRequest,
+# dan menjalankannya di runner yang berbeda dari mesin pengembang justru yang
+# membuktikan skripnya tidak bergantung pada sisa keadaan lokal.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Rahasia dibuat baru tiap run, tidak disimpan di repo: `src/lib/session.ts`
+      # menolak jalan di produksi tanpa SESSION_SECRET yang cukup panjang.
+      - name: Siapkan .env
+        shell: pwsh
+        run: |
+          $secret = -join ((1..64) | ForEach-Object { '{0:x}' -f (Get-Random -Max 16) })
+          $password = 'Ci-Smoke-Pass-2026!'
+          @"
+          DATABASE_URL="file:./dev.db"
+          SESSION_SECRET="$secret"
+          APP_PASSWORD="$password"
+          "@ | Set-Content -Path .env -Encoding utf8
+          "APP_PASSWORD=$password" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Prisma migrate
+        run: npx prisma migrate deploy
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Seed
+        run: npm run seed
+
+      - name: Buat akun admin untuk smoke
+        shell: pwsh
+        run: |
+          npx tsx scripts/create-user.ts --username admin --name "CI Admin" --role ADMIN --password $env:APP_PASSWORD
+          if ($LASTEXITCODE -ne 0) { throw "create-user gagal" }
+
+      - name: Jalankan smoke (end-to-end)
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'server.log'
+          $proc = Start-Process -FilePath 'npm.cmd' -ArgumentList 'run', 'start', '--', '-p', '3100' `
+            -RedirectStandardOutput $log -RedirectStandardError "$log.err" -PassThru -NoNewWindow
+
+          $ready = $false
+          for ($i = 0; $i -lt 90; $i++) {
+            Start-Sleep -Seconds 1
+            try {
+              $res = Invoke-WebRequest -Uri 'http://localhost:3100/login' -UseBasicParsing -TimeoutSec 3
+              if ($res.StatusCode -eq 200) { $ready = $true; break }
+            } catch { }
+          }
+
+          if (-not $ready) {
+            Get-Content $log -ErrorAction SilentlyContinue
+            Get-Content "$log.err" -ErrorAction SilentlyContinue
+            throw "server tidak siap dalam 90 detik"
+          }
+
+          try {
+            ./smoke.ps1
+            if ($LASTEXITCODE -ne 0) { throw "smoke.ps1 melaporkan kegagalan (exit $LASTEXITCODE)" }
+          } finally {
+            Get-NetTCPConnection -LocalPort 3100 -State Listen -ErrorAction SilentlyContinue |
+              Select-Object -ExpandProperty OwningProcess -Unique |
+              ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            Write-Host '--- 30 baris terakhir log server ---'
+            Get-Content $log -Tail 30 -ErrorAction SilentlyContinue
+          }
+
+      - name: Unggah log server bila gagal
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-log
+          path: |
+            ${{ runner.temp }}/server.log
+            ${{ runner.temp }}/server.log.err
+          if-no-files-found: ignore

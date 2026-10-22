@@ -1,5 +1,7 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+[![verify](https://github.com/adamsyahmop/InventoryList/actions/workflows/verify.yml/badge.svg)](https://github.com/adamsyahmop/InventoryList/actions/workflows/verify.yml)
+
 ## Inventory List
 
 Aplikasi pencatatan inventaris barang: kode unik (boleh dibuat otomatis dengan
@@ -13,8 +15,12 @@ difilter per barang/alasan/status/tanggal, berpaginasi), halaman
 dipakai di daftar barang), serta **impor `.xlsx`** untuk memasukkan banyak
 barang sekaligus (lihat `src/lib/item-import.ts`).
 
+Multi-user dengan tiga peran (**admin / staff / viewer**), kelola akun di
+`/pengguna`, dan laporan **nilai buku** (`/laporan/nilai-buku`) dengan penyusutan
+garis lurus per kategori.
+
 Stack: **Next.js 16.4.0** (Turbopack, Cache Components + Partial Prefetching) ·
-**Prisma 7.10.0** · **SQLite** (`dev.db`) · **Zod** · **`qrcode`** (QR SVG
+**Prisma 7.10.0** · **SQLite** (`dev.db`) · **Zod** · **Vitest** (unit test) · **`qrcode`** (QR SVG
 server-side) · **`exceljs`** (penyusun berkas .xlsx) · Tailwind CSS 4.
 
 > Halaman aplikasi berada di `src/app/(app)/`, bukan `app/page.tsx`. Proteksi

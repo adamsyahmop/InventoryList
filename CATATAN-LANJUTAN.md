@@ -1317,10 +1317,12 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
 
 ### Tier C — rekayasa & operasional
 
-- **Belum ada unit test.** `smoke.ps1` bagus tetapi butuh server hidup + seed
+- ✅ **SELESAI (Paket 8)** — Vitest + `npm test` untuk fungsi murni.
+  ~~**Belum ada unit test.**~~ `smoke.ps1` bagus tetapi butuh server hidup + seed
   dan hanya menguji HTTP; fungsi murni (`itemCodeYear`, `format*`,
   `buildInventoryWorkbook`) layak diuji Vitest + skrip `npm test`.
-- **Belum ada CI.** Perlu alur `tsc --noEmit` → `eslint` → `build` →
+- ✅ **SELESAI (Paket 8)** — `.github/workflows/verify.yml` (tsc → lint → test →
+  build → seed → smoke di windows-latest). ~~**Belum ada CI.**~~ Perlu alur `tsc --noEmit` → `eslint` → `build` →
   `smoke.ps1` (dengan `npm run seed`) supaya regresi seperti
   `runtime = "nodejs"` tidak terulang tanpa terasa.
 - ✅ **SELESAI (Paket 13)** — arah deploy diputuskan: **VPS + Docker, SQLite
@@ -1342,7 +1344,8 @@ tercatat di "Kandidat paket berikutnya" dan "Sisa ide" di atas sengaja hanya
 2. Tier B: ✅ import Excel (Paket 8), ✅ ekspor ikut filter (Paket 9),
    ✅ `/movements` filter+paginasi (Paket 10), ✅ label massal (Paket 11),
    ✅ stock opname (Paket 12), ✅ penyusutan / laporan nilai buku (Paket 7).
-3. Tier C: target DB produksi → backup → CI → unit test.
+3. Tier C: ✅ unit test + CI (Paket 8). Berikutnya: **target DB produksi**
+   (VPS/Docker) → backup terjadwal.
 
 ## Paket 5 #1 — `searchKey` tidak lagi basi (sesi 15 Oktober 2026)
 
@@ -1779,6 +1782,70 @@ setiap pengguna perlu login sekali lagi.
 - Tanggal disimpan UTC; `monthsBetween` membandingkan komponen UTC dan mengurangi
   satu bulan bila tanggal belum genap — supaya "1 bulan" berarti satu bulan
   kalender penuh, bukan 30 hari.
+
+## Paket 8 — unit test + CI (sesi 21 Oktober 2026)
+
+### Keputusan
+
+- **Vitest** (bukan Jest): konfigurasi alias `@/*` cukup 6 baris, jalan di atas
+  Vite yang sudah dipakai Turbopack-era Next, dan tidak butuh transform Babel.
+- **Pembagian tugas tes**: `npm test` menguji **fungsi murni** (cepat, menunjuk
+  baris yang salah); `smoke.ps1` tetap menguji aplikasi sungguhan lewat HTTP.
+  Tidak ada tes yang memalsukan Prisma — kalau butuh database, itu wilayah smoke.
+- **CI di `windows-latest`**, bukan ubuntu: `smoke.ps1` memakai PowerShell +
+  `System.Net.HttpWebRequest`, dan menjalankannya di runner lain justru menguji
+  bahwa skripnya tidak bergantung pada sisa keadaan mesin pengembang.
+- **`.env` dibuat di dalam workflow** dengan `SESSION_SECRET` acak tiap run —
+  tidak ada rahasia yang disimpan di repo, dan `src/lib/session.ts` tetap menolak
+  jalan di produksi tanpa secret yang cukup panjang.
+
+### Yang berubah
+
+| Berkas | Isi |
+| --- | --- |
+| `vitest.config.ts` | alias `@` + `TZ=Asia/Jakarta` (format tanggal tidak boleh bergantung zona runner) |
+| `tests/unit/depreciation.test.ts` | 17 tes: bulan penuh, umur ekonomis, nilai buku, laba/rugi pelepasan |
+| `tests/unit/item-code.test.ts` | 7 tes: kode `INV-…`, jenis aset, status non-aktif |
+| `tests/unit/format-utils.test.ts` | 12 tes: rupiah/angka/tanggal, `daysUntil`, `buildSearchKey`, `firstParam` |
+| `package.json` | `npm test` (`vitest run`) + `npm run test:watch` |
+| `.github/workflows/verify.yml` | `npm ci → migrate deploy → tsc → lint → test → build → seed → buat akun → start → smoke` |
+| `README.md` | badge status CI |
+
+### Bug yang ketemu justru karena CI (bukan ditulis sengaja)
+
+1. **Halaman di luar jangkauan menampilkan "data kosong".** Di database segar,
+   `/movements?page=2` (dan `/items?page=999`) menampilkan *"Belum ada pergerakan
+   tercatat"* padahal datanya ada — smoke lama tidak menangkapnya karena `dev.db`
+   sudah menumpuk ratusan pergerakan dari run sebelumnya. Sekarang `listItems` dan
+   `listMovements` menghitung total lebih dulu lalu **menjepit** nomor halaman ke
+   halaman terakhir.
+2. **Pemeriksaan paginasi bergantung pada sisa data lokal.** Bagian
+   `/movements` di smoke kini adaptif: kalau hanya ada satu halaman, yang diuji
+   adalah ketiadaan navigasi + perilaku halaman di luar jangkauan, bukan
+   memaksa data yang tidak ada.
+3. **Akun uji bisa masuk ke database yang salah.** `create-user.ts` membaca
+   `DATABASE_URL` dari `.env`; saat smoke diarahkan ke server dengan `SMOKE_BASE`
+   dan DB lain, akunnya dibuat di DB yang salah dan login gagal dengan gejala
+   membingungkan. Smoke sekarang memeriksa exit code dan menyebut penyebabnya.
+
+### Bukti (dijalankan langsung, bukan dari ingatan)
+
+- `npm test` → **36 tes, 3 berkas, 0 gagal** (± 3 detik).
+- Latihan pipeline CI dijalankan lokal dengan **database kosong**
+  (`ci-test.db`): `prisma migrate deploy` → `npm run seed` → `create-user` →
+  `next start -p 3101` → `SMOKE_BASE=… ./smoke.ps1` → **432 pemeriksaan, 0 gagal**.
+- Database dev (`dev.db`, port 3100) setelah perubahan: **432 pemeriksaan, 0 gagal**.
+- `tsc` 0, `eslint src tests scripts --max-warnings=0` 0, `npm run build` sukses.
+- `ci-test.db` dihapus lagi setelah latihan (tidak ikut ke repo).
+
+### Catatan
+
+- Workflow menaruh log server sebagai artefak bila gagal — tanpa itu, kegagalan
+  `next start` di runner hanya terlihat sebagai "smoke timeout".
+- `prisma migrate deploy` (bukan `migrate dev`) dipakai di CI: tidak butuh shadow
+  database dan tidak boleh membuat migrasi baru.
+- Menambah tes baru: taruh di `tests/unit/*.test.ts`, impor lewat alias `@/…`
+  supaya tidak ada path relatif berantakan.
 
 ## Hal teknis yang perlu diingat (jangan diulang salahnya)
 

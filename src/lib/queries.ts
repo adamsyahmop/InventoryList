@@ -109,29 +109,25 @@ export async function listItems(filters: ItemFilters): Promise<ItemListResult> {
   cacheTag(CACHE_TAGS.items);
   cacheLife("minutes");
 
-  const page = Math.max(1, Math.floor(filters.page ?? 1));
-
   // searchKey sudah lowercase sejak ditulis, jadi `contains` di sana berperilaku
   // sama di SQLite maupun PostgreSQL (lihat `buildItemWhere`).
   const where = buildItemWhere(filters);
 
-  const [items, total] = await prisma.$transaction([
-    prisma.item.findMany({
-      where,
-      include: ITEM_INCLUDE,
-      orderBy: itemOrderBy(filters.sort),
-      skip: (page - 1) * ITEMS_PER_PAGE,
-      take: ITEMS_PER_PAGE,
-    }),
-    prisma.item.count({ where }),
-  ]);
+  const total = await prisma.item.count({ where });
+  const pageCount = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE));
+  // Halaman di luar jangkauan (tautan lama, `?page=999`) ditampilkan sebagai
+  // halaman terakhir — bukan daftar kosong yang terbaca seperti "data hilang".
+  const page = Math.min(Math.max(1, Math.floor(filters.page ?? 1)), pageCount);
 
-  return {
-    items,
-    total,
-    page,
-    pageCount: Math.max(1, Math.ceil(total / ITEMS_PER_PAGE)),
-  };
+  const items = await prisma.item.findMany({
+    where,
+    include: ITEM_INCLUDE,
+    orderBy: itemOrderBy(filters.sort),
+    skip: (page - 1) * ITEMS_PER_PAGE,
+    take: ITEMS_PER_PAGE,
+  });
+
+  return { items, total, page, pageCount };
 }
 
 export async function getItem(id: string) {
@@ -269,26 +265,23 @@ export async function listMovements(
   cacheTag(CACHE_TAGS.movements);
   cacheLife("minutes");
 
-  const page = Math.max(1, Math.floor(filters.page ?? 1));
   const where = buildMovementWhere(filters);
 
-  const [movements, total] = await prisma.$transaction([
-    prisma.itemMovement.findMany({
-      where,
-      include: MOVEMENT_INCLUDE,
-      orderBy: { movedAt: "desc" },
-      skip: (page - 1) * MOVEMENTS_PER_PAGE,
-      take: MOVEMENTS_PER_PAGE,
-    }),
-    prisma.itemMovement.count({ where }),
-  ]);
+  const total = await prisma.itemMovement.count({ where });
+  const pageCount = Math.max(1, Math.ceil(total / MOVEMENTS_PER_PAGE));
+  // Lihat catatan di `listItems`: halaman di luar jangkauan dijepit ke halaman
+  // terakhir supaya riwayat tidak tampak kosong padahal ada isinya.
+  const page = Math.min(Math.max(1, Math.floor(filters.page ?? 1)), pageCount);
 
-  return {
-    movements,
-    total,
-    page,
-    pageCount: Math.max(1, Math.ceil(total / MOVEMENTS_PER_PAGE)),
-  };
+  const movements = await prisma.itemMovement.findMany({
+    where,
+    include: MOVEMENT_INCLUDE,
+    orderBy: { movedAt: "desc" },
+    skip: (page - 1) * MOVEMENTS_PER_PAGE,
+    take: MOVEMENTS_PER_PAGE,
+  });
+
+  return { movements, total, page, pageCount };
 }
 
 /** Semua data master sekaligus, dipakai untuk mengisi dropdown di form. */

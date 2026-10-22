@@ -461,7 +461,8 @@ HasText 'items(q=zzzznothing)' $emptySearch.Body 'INV-2026-0001' $false
 Check 'auth GET /items?status=LOST status' $emptyStatus.Code 200
 HasText 'items(status=LOST)' $emptyStatus.Body 'Belum ada barang yang cocok'
 Check 'auth GET /items?page=999 status' $overflowPage.Code 200
-HasText 'items(page=999)' $overflowPage.Body 'Belum ada barang yang cocok'
+HasText 'items(page=999) dijepit ke halaman terakhir' $overflowPage.Body 'Belum ada barang yang cocok' $false
+HasText 'items(page=999) tetap menampilkan barang' $overflowPage.Body 'INV-2026-'
 # URL yang tidak cocok rute mana pun tidak streaming, jadi status 404 asli.
 Check 'auth GET /halaman-tidak-ada status' $missingRoute.Code 404
 HasText 'not-found-global' $missingRoute.Body 'Halaman tidak ditemukan'
@@ -628,16 +629,30 @@ $movementDate = Hit '/movements?from=2000-01-01&to=2000-12-31' $token
 Check 'movements filter tanggal status' $movementDate.Code 200
 HasText 'movements filter tanggal kosong' $movementDate.Body 'Tidak ada pergerakan yang cocok'
 
-$movementPage2 = Hit '/movements?page=2' $token
-Check 'movements halaman 2 status' $movementPage2.Code 200
-HasText 'movements halaman 2 label' $movementPage2.Body 'Halaman 2 dari'
-HasText 'movements halaman 1 punya navigasi' $movements.Body 'Halaman 1 dari'
+# Navigasi hanya muncul bila ada lebih dari satu halaman. Jumlah pergerakan
+# bergantung pada isi database (seed segar hanya punya sedikit), jadi
+# pemeriksaannya dibuat adaptif: kalau satu halaman, yang diuji adalah
+# ketiadaan navigasi, bukan memaksa data yang tidak ada.
+$pageCountMatch = [regex]::Match($movements.Body, 'Halaman 1 dari (\d+)')
+if ($pageCountMatch.Success) {
+  $movementPages = [int]$pageCountMatch.Groups[1].Value
+  Check 'movements lebih dari satu halaman' ($movementPages -ge 2) $true
+  $movementPage2 = Hit '/movements?page=2' $token
+  Check 'movements halaman 2 status' $movementPage2.Code 200
+  HasText 'movements halaman 2 label' $movementPage2.Body 'Halaman 2 dari'
+} else {
+  HasText 'movements satu halaman tanpa navigasi' $movements.Body 'Halaman 1 dari' $false
+  $movementPage2 = Hit '/movements?page=2' $token
+  Check 'movements halaman di luar jangkauan status' $movementPage2.Code 200
+  # Dijepit ke halaman terakhir: riwayat tidak boleh tampak kosong padahal ada.
+  HasText 'movements halaman di luar jangkauan tetap berisi' $movementPage2.Body 'Belum ada pergerakan tercatat' $false
+}
 
 # Nilai asing (status tak dikenal, halaman bukan angka, tanggal mustahil) harus
 # diabaikan, bukan diteruskan ke Prisma.
 $movementBad = Hit '/movements?status=BOGUS&page=abc&from=2026-02-31' $token
 Check 'movements filter tidak valid status' $movementBad.Code 200
-HasText 'movements filter tidak valid jatuh ke halaman 1' $movementBad.Body 'Halaman 1 dari'
+HasText 'movements filter tidak valid tidak error' $movementBad.Body 'Terjadi kesalahan' $false
 HasText 'master' $master.Body 'MasterManager'
 HasText 'master' $master.Body 'Unit kerja pemilik aset'
 HasText 'master' $master.Body 'Kode cabang'
@@ -1291,8 +1306,14 @@ $viewerUser = 'smoke-viewer'
 $viewerPass = 'SmokeViewer#2026'
 # `npm run ... -- --flag` tidak meneruskan argumen dengan benar dari PowerShell,
 # jadi skripnya dipanggil langsung lewat tsx.
+# Skrip akun memakai DATABASE_URL dari lingkungan/.env — kalau server yang diuji
+# memakai database lain (mis. `SMOKE_BASE` ke artefak terpisah), variabelnya
+# harus ikut diekspor; kalau tidak, akun dibuat di DB yang salah dan login akan
+# gagal dengan pesan yang membingungkan.
 & npx --no-install tsx scripts/create-user.ts --username $staffUser --name 'Smoke Staff' --role STAFF --password $staffPass | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "gagal membuat akun uji '$staffUser' (cek DATABASE_URL)" }
 & npx --no-install tsx scripts/create-user.ts --username $viewerUser --name 'Smoke Viewer' --role VIEWER --password $viewerPass | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "gagal membuat akun uji '$viewerUser' (cek DATABASE_URL)" }
 
 $staffLogin = Submit-Login $staffPass '' $staffUser
 $viewerLogin = Submit-Login $viewerPass '' $viewerUser

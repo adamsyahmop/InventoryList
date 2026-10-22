@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "seed": "tsx prisma/seed.ts",
     "rebuild-search-keys": "tsx scripts/rebuild-search-keys.ts",
     "backup": "node scripts/backup-db.mjs",
@@ -35,6 +37,7 @@
     "eslint-config-next": "16.4.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.7"
   }
 }
