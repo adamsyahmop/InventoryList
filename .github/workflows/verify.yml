@@ -46,6 +46,11 @@ jobs:
           "@ | Set-Content -Path .env -Encoding utf8
           "APP_PASSWORD=$password" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      # Client Prisma TIDAK di-commit (`/src/generated/prisma` ada di .gitignore),
+      # jadi checkout bersih tidak punya `@/generated/prisma/*` sampai digenerate.
+      - name: Prisma generate
+        run: npx prisma generate
+
       - name: Prisma migrate
         run: npx prisma migrate deploy
 

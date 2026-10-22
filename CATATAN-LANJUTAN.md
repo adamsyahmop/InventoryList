@@ -1879,6 +1879,16 @@ Di laptop tidak terlihat karena `.next` sudah ada dari build sebelumnya.
   `npx next typegen` sebelum `tsc`; `npm run build` juga membuatnya, tapi
   urutannya jadi terbalik.
 
+Run ketiga masih gagal di **Type check** dengan sebab lain: client Prisma juga
+tidak ada di checkout. `/src/generated/prisma` masuk `.gitignore`, dan
+`prisma migrate deploy` **tidak** menjalankannya (hanya `migrate dev` yang
+memicu generate). Tanpa client, `tsc` berhenti dengan
+`Cannot find module '../src/generated/prisma/enums'` dari `prisma/seed.ts`.
+
+- Perbaikan: langkah **`npx prisma generate`** eksplisit sesudah `npm ci`.
+- Diuji ulang di mesin ini: `src/generated/prisma` dipindahkan → `tsc` gagal
+  persis seperti itu → `prisma generate` → `tsc` 0.
+
 ### Catatan
 
 - Workflow menaruh log server sebagai artefak bila gagal — tanpa itu, kegagalan
