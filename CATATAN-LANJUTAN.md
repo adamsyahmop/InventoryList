@@ -1865,6 +1865,20 @@ error gyp ERR! stack Error: Could not find any Visual Studio installation to use
 Setelah pin: `npm test` 36/36, `tsc` 0, `build` 0, `npm run backup` jalan
 (integrity=ok), dan `smoke.ps1` **432 pemeriksaan, 0 gagal** di mesin ini.
 
+Run kedua gagal di **Type check**: `tsc` lulus di laptop tapi tidak di checkout
+bersih. Penyebabnya `tsconfig.json` menyertakan `next-env.d.ts` dan
+`.next/types/**/*.ts` — keduanya **dibuat Next** dan tidak ada di repo
+(`.gitignore`), jadi di runner `tsc` berhenti dengan
+`src/app/layout.tsx(24,50): error TS2304: Cannot find name 'LayoutProps'`.
+Di laptop tidak terlihat karena `.next` sudah ada dari build sebelumnya.
+
+- Perbaikan: langkah **`npx next typegen`** sebelum `tsc --noEmit`. Sudah diuji
+  ulang di mesin ini dengan `.next` dan `next-env.d.ts` **dipindahkan dulu**:
+  `tsc` gagal persis seperti di CI → `next typegen` → `tsc` 0.
+- Aturan praktis: setelah `git clone` (atau `rm -rf .next`), jalankan
+  `npx next typegen` sebelum `tsc`; `npm run build` juga membuatnya, tapi
+  urutannya jadi terbalik.
+
 ### Catatan
 
 - Workflow menaruh log server sebagai artefak bila gagal — tanpa itu, kegagalan

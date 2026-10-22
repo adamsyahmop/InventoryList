@@ -49,6 +49,12 @@ jobs:
       - name: Prisma migrate
         run: npx prisma migrate deploy
 
+      # `tsconfig.json` menyertakan `next-env.d.ts` dan `.next/types/**` yang
+      # dibuat Next. Di checkout bersih keduanya belum ada, jadi tsc gagal dengan
+      # "Cannot find name 'LayoutProps'" sebelum build pernah dijalankan.
+      - name: Generate route types
+        run: npx next typegen
+
       - name: Type check
         run: npx tsc --noEmit
 
