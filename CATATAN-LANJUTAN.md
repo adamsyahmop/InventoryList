@@ -1838,6 +1838,33 @@ setiap pengguna perlu login sekali lagi.
 - `tsc` 0, `eslint src tests scripts --max-warnings=0` 0, `npm run build` sukses.
 - `ci-test.db` dihapus lagi setelah latihan (tidak ikut ke repo).
 
+### Percobaan CI pertama (gagal) — dan akar masalahnya
+
+Run pertama workflow gagal di langkah **Install dependencies**, bukan di tes.
+Log CI tidak bisa dibaca tanpa token, jadi penyebabnya ditelusuri dari log npm
+lokal setelah `npm ci` diulang di mesin ini:
+
+```
+info run better-sqlite3@13.0.3 install node_modules/better-sqlite3 node-gyp rebuild
+error gyp ERR! stack Error: Could not find any Visual Studio installation to use
+```
+
+- `better-sqlite3@13` **tidak lagi memakai `prebuild-install`**: script
+  instalasinya langsung `node-gyp rebuild`, jadi butuh compiler C++ di setiap
+  mesin/runner yang memasang dari nol. Di laptop ini Visual Studio tidak ada →
+  gagal. (Yang lolos adalah salinan milik Prisma:
+  `@prisma/adapter-better-sqlite3/node_modules/better-sqlite3@12.11.1` yang
+  masih mengunduh prebuilt binary.)
+- **Perbaikan: pin `better-sqlite3` ke `^12.11.1`** — versi yang sama dengan
+  yang dipakai adapter Prisma, dan masih menyediakan prebuild (tanpa compiler).
+  Ini juga membuat image Docker nanti tidak perlu `build-essential`/MSVC.
+- Dampaknya bukan cuma CI: siapa pun yang `git clone` lalu `npm install` di
+  mesin tanpa compiler akan gagal. `scripts/backup-db.mjs` memakai paket ini
+  langsung, jadi tidak bisa sekadar dihapus.
+
+Setelah pin: `npm test` 36/36, `tsc` 0, `build` 0, `npm run backup` jalan
+(integrity=ok), dan `smoke.ps1` **432 pemeriksaan, 0 gagal** di mesin ini.
+
 ### Catatan
 
 - Workflow menaruh log server sebagai artefak bila gagal — tanpa itu, kegagalan
