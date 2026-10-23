@@ -1240,7 +1240,7 @@ $opnList = Hit '/opname' $token
 Check 'opname daftar status' $opnList.Code 200
 HasText 'opname daftar punya form mulai' $opnList.Body 'Mulai sesi baru'
 HasText 'opname daftar punya riwayat' $opnList.Body 'Riwayat sesi'
-HasText 'opname nav ada' $opnList.Body 'Stock Opname'
+HasText 'opname nav ada' $opnList.Body 'Opname'
 
 $opnStart = Submit-Action '/opname' 'Mulai opname' '' $token
 Check 'opname mulai status redirect' $opnStart.Code 303
@@ -1373,6 +1373,10 @@ Check 'GET /laporan/nilai-buku status' $bv.Code 200
 HasText 'nilai buku punya tabel' $bv.Body 'Nilai buku per barang'
 HasText 'nilai buku punya bagian pelepasan' $bv.Body 'Hasil pelepasan vs nilai buku'
 HasText 'nav memuat menu Nilai Buku' $bv.Body 'Nilai Buku'
+$navSampah = $bv.Body.LastIndexOf('href="/items/terhapus"')
+$navMaster = $bv.Body.IndexOf('href="/master"')
+Check 'nav: Sampah berada setelah Master' (($navSampah -gt $navMaster) -and ($navMaster -gt 0)) $true
+HasText 'nav: Sampah dipisah garis' $bv.Body 'aria-hidden="true" class="mx-1.5 h-5 w-px shrink-0 bg-neutral-200"'
 
 # Arsitektur angka: setiap baris membawa cost/penyusutan/nilai buku, jadi
 # identitas "penyusutan + nilai buku = perolehan" bisa diuji tanpa menebak

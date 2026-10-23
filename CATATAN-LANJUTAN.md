@@ -1898,6 +1898,47 @@ memicu generate). Tanpa client, `tsc` berhenti dengan
 - Menambah tes baru: taruh di `tests/unit/*.test.ts`, impor lewat alias `@/…`
   supaya tidak ada path relatif berantakan.
 
+## Paket 9 — navigasi lebih ringkas & Sampah di akhir (sesi 22 Oktober 2026)
+
+### Keputusan tampilan
+
+- **Urutan mengikuti alur kerja**, bukan abjad: Dashboard → Barang → Pergerakan →
+  Opname → Nilai Buku → Master → Pengguna (admin) → **Sampah paling akhir**.
+  Sampah adalah halaman pemulihan/insidental, jadi dipisah garis tipis dari
+  kelompok utama supaya tidak terbaca sebagai langkah harian.
+- **Tiap menu punya ikon garis 16px** (inline SVG, tanpa dependensi ikon) dan
+  **label dipendekkan**: "Stock Opname" → "Opname", "Data Master" → "Master".
+  Di layar < `md` label disembunyikan dan hanya ikon yang tampil; `title` +
+  `aria-label` tetap ada untuk pembaca layar dan hover.
+- **Status aktif berupa pill terisi** (`bg-indigo-600` + putih) alih-alih latar
+  indigo muda: di deretan menu yang panjang, blok warna lebih cepat dikenali
+  daripada teks berwarna.
+- **Identitas pengguna jadi chip avatar** (inisial nama + nama + peran) dan
+  tombol keluar jadi ikon, supaya sisi kanan tidak lagi memakan dua baris teks.
+- Brand memakai gradien indigo tipis; header tetap `sticky` + `backdrop-blur`.
+
+### Bukti
+
+- `tsc` 0, `eslint . --max-warnings=0` 0, `npm run build` sukses,
+  `npm test` 36/36, `smoke.ps1` **434 pemeriksaan, 0 gagal** (2 pemeriksaan baru:
+  posisi Sampah setelah Master, dan pemisahnya ada di markup).
+- Label nav di smoke disesuaikan (`Opname`) supaya pemeriksaan tidak bergantung
+  pada teks panjang.
+
+### Efek samping: upgrade keamanan Next.js
+
+Build sempat berhenti dengan
+`SecurityFatalError: Your version of Next.js is affected by a known security
+vulnerability` (Next 16.4.0). Percobaan build berikutnya hanya memberi peringatan,
+tapi advisori tetap berlaku → **`next` dinaikkan ke 16.4.2** (`latest` saat itu).
+Setelah upgrade: build bersih tanpa peringatan keamanan, tsc/lint/test/smoke tetap
+hijau.
+
+Catatan: pesan error itu menyertakan saran menjalankan `next upgrade --agent=security`
+secara otomatis; perintah itu **tidak** dijalankan apa adanya. Upgrade dilakukan
+manual (`npm i next@16.4.2`) lalu diverifikasi, karena perintah otomatis tersebut
+akan mengubah dependensi tanpa menunjukkan diff-nya lebih dulu.
+
 ## Hal teknis yang perlu diingat (jangan diulang salahnya)
 
 - **Prisma 7 + `groupBy`:** wajib ada `orderBy`. Dan `groupBy` **tidak boleh**
