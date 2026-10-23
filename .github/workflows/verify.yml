@@ -85,6 +85,7 @@ jobs:
         shell: pwsh
         run: |
           $log = Join-Path $env:RUNNER_TEMP 'server.log'
+          $smokeLog = Join-Path $env:RUNNER_TEMP 'smoke.log'
           $proc = Start-Process -FilePath 'npm.cmd' -ArgumentList 'run', 'start', '--', '-p', '3100' `
             -RedirectStandardOutput $log -RedirectStandardError "$log.err" -PassThru -NoNewWindow
 
@@ -100,12 +101,24 @@ jobs:
           if (-not $ready) {
             Get-Content $log -ErrorAction SilentlyContinue
             Get-Content "$log.err" -ErrorAction SilentlyContinue
+            # Anotasi ::error bisa dibaca lewat API tanpa login, jadi penyebabnya
+            # tetap terlihat walau log job tidak bisa dibuka.
+            Get-Content "$log.err" -Tail 5 -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host "::error title=server tidak siap::$_" }
             throw "server tidak siap dalam 90 detik"
           }
 
           try {
-            ./smoke.ps1
-            if ($LASTEXITCODE -ne 0) { throw "smoke.ps1 melaporkan kegagalan (exit $LASTEXITCODE)" }
+            ./smoke.ps1 *>&1 | Tee-Object -FilePath $smokeLog
+            $code = $LASTEXITCODE
+            if ($code -ne 0) {
+              $fails = Select-String -Path $smokeLog -Pattern '^FAIL' | Select-Object -First 8
+              foreach ($f in $fails) { Write-Host "::error title=smoke gagal::$($f.Line)" }
+              if (-not $fails) {
+                Get-Content $smokeLog -Tail 5 | ForEach-Object { Write-Host "::error title=smoke error::$_" }
+              }
+              throw "smoke.ps1 melaporkan kegagalan (exit $code)"
+            }
           } finally {
             Get-NetTCPConnection -LocalPort 3100 -State Listen -ErrorAction SilentlyContinue |
               Select-Object -ExpandProperty OwningProcess -Unique |
@@ -123,4 +136,5 @@ jobs:
           path: |
             ${{ runner.temp }}/server.log
             ${{ runner.temp }}/server.log.err
+            ${{ runner.temp }}/smoke.log
           if-no-files-found: ignore
